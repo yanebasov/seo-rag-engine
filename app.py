@@ -22,6 +22,7 @@ SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
+# Авторизация
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
 if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
     try:
@@ -57,7 +58,7 @@ if not st.session_state["authenticated"]:
                 st.error("Неверный логин или пароль")
     st.stop()
 
-# --- САЙДБАР ---
+# Сайдбар
 with st.sidebar:
     st.success(f"👤 Пользователь: **{st.session_state['username']}**")
     if st.button("🚪 Выйти"):
@@ -73,40 +74,6 @@ with st.sidebar:
     st.divider()
     gemini_key = st.text_input("🔑 Gemini API Key:", value=DEFAULT_GEMINI_KEY, type="password").strip().strip("'").strip('"')
 
-# Автоматическое обнаружение точных моделей по ключу
-def resolve_gemini_models(api_key):
-    if not api_key:
-        return None, None, "Введите Gemini API Key"
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-        res = requests.get(url, timeout=5)
-        if res.status_code == 200:
-            models_data = res.json().get("models", [])
-            embed_model, gen_model = None, None
-            for m in models_data:
-                methods = m.get("supportedGenerationMethods", [])
-                m_name = m["name"] # e.g. 'models/text-embedding-004'
-                if not embed_model and "embedContent" in methods:
-                    embed_model = m_name
-                if "generateContent" in methods:
-                    if "flash" in m_name and not gen_model:
-                        gen_model = m_name
-                    elif not gen_model:
-                        gen_model = m_name
-            return embed_model, gen_model, "OK"
-        else:
-            return None, None, f"Ошибка ключа: {res.status_code}"
-    except Exception as e:
-        return None, None, str(e)
-
-EMBED_MODEL_NAME, GEN_MODEL_NAME, KEY_STATUS = resolve_gemini_models(gemini_key)
-
-with st.sidebar:
-    if KEY_STATUS == "OK":
-        st.caption(f"🟢 **Подключено**\n\n- Эмбеддинги: `{EMBED_MODEL_NAME}`\n- Генерация: `{GEN_MODEL_NAME}`")
-    else:
-        st.error(f"⚠️ {KEY_STATUS}")
-
 def get_supabase_headers():
     return {
         "apikey": SUPABASE_KEY,
@@ -114,38 +81,48 @@ def get_supabase_headers():
         "Content-Type": "application/json"
     }
 
+# Получение эмбеддингов
 def get_embedding(text: str):
-    if not gemini_key or not EMBED_MODEL_NAME:
-        st.error("Gemini API Key не настроен или недействителен.")
+    if not gemini_key:
+        st.error("Укажите Gemini API Key в левом меню.")
         return None
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/{EMBED_MODEL_NAME}:embedContent?key={gemini_key}"
-    payload = {"content": {"parts": [{"text": text}]}}
-    try:
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code == 200:
-            return res.json()["embedding"]["values"][:768]
-        st.error(f"Google Embeddings Error ({res.status_code}): {res.text}")
-    except Exception as e:
-        st.error(f"Ошибка получения вектора: {e}")
+    embed_models = ["text-embedding-004", "gemini-embedding-exp-03-07", "embedding-001"]
+    for m in embed_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:embedContent?key={gemini_key}"
+        payload = {"content": {"parts": [{"text": text}]}}
+        try:
+            res = requests.post(url, json=payload, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                if "embedding" in data and "values" in data["embedding"]:
+                    return data["embedding"]["values"][:768]
+        except Exception:
+            continue
+
+    st.error("Не удалось рассчитать вектор эмбеддинга.")
     return None
 
+# Генерация текста через новые модели
 def generate_llm(prompt: str, temperature: float = 0.2):
-    if not gemini_key or not GEN_MODEL_NAME:
-        return "Ошибка: модель генерации недоступна."
+    if not gemini_key:
+        return "Ошибка: отсутствует Gemini API Key."
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/{GEN_MODEL_NAME}:generateContent?key={gemini_key}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": temperature}
-    }
-    try:
-        res = requests.post(url, json=payload, timeout=30)
-        if res.status_code == 200:
-            return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        st.error(f"Google LLM Error ({res.status_code}): {res.text}")
-    except Exception as e:
-        st.error(f"Ошибка вызова LLM: {e}")
+    llm_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"]
+    for m in llm_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={gemini_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": temperature}
+        }
+        try:
+            res = requests.post(url, json=payload, timeout=30)
+            if res.status_code == 200:
+                return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception:
+            continue
+
+    st.error("Ошибка вызова генеративных моделей Google.")
     return "Не удалось сгенерировать текст."
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
@@ -163,9 +140,8 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             return res.json()
-        st.error(f"Supabase RPC Error: {res.status_code} - {res.text}")
-    except Exception as e:
-        st.error(f"Ошибка базы данных: {e}")
+    except Exception:
+        pass
     return []
 
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
