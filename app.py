@@ -1,165 +1,309 @@
 import os
+import json
 import streamlit as st
+import pandas as pd
 import requests
-from supabase import create_client
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+def get_secret(key, default=""):
+    if hasattr(st, "secrets") and key in st.secrets:
+        return st.secrets[key]
+    return os.getenv(key, default)
 
-@st.cache_resource
-def init_supabase():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY", "")
 
-supabase = init_supabase()
+AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
+auth_raw = get_secret("AUTH_USERS")
+if auth_raw:
+    if isinstance(auth_raw, dict):
+        AUTH_USERS = auth_raw
+    elif isinstance(auth_raw, str):
+        try:
+            AUTH_USERS = json.loads(auth_raw)
+        except Exception:
+            pass
 
-# 1. Автоматический поиск рабочей модели эмбеддингов
-@st.cache_resource
-def get_model_info():
-    for api_version in ["v1beta", "v1"]:
-        url = f"https://generativelanguage.googleapis.com/{api_version}/models?key={GEMINI_API_KEY}"
-        res = requests.get(url)
-        if res.status_code == 200:
-            models = res.json().get("models", [])
-            for m in models:
-                methods = m.get("supportedGenerationMethods", [])
-                if "embedContent" in methods or "batchEmbedContents" in methods:
-                    model_name = m["name"].replace("models/", "")
-                    return api_version, model_name
-    return "v1beta", "text-embedding-004"
+def get_supabase_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
 
-API_VERSION, EMBED_MODEL = get_model_info()
-
-# 2. Получение эмбеддинга (768 dim)
 def get_embedding(text: str):
-    url = f"https://generativelanguage.googleapis.com/{API_VERSION}/models/{EMBED_MODEL}:embedContent?key={GEMINI_API_KEY}"
-    payload = {
-        "content": {"parts": [{"text": text}]},
-        "outputDimensionality": 768
-    }
-    res = requests.post(url, json=payload)
-    if res.status_code != 200:
-        # Fallback без outputDimensionality
-        payload_fallback = {"content": {"parts": [{"text": text}]}}
-        res_fb = requests.post(url, json=payload_fallback)
-        if res_fb.status_code != 200:
-            raise Exception(f"Ошибка API ({res.status_code}): {res.text}")
-        vals = res_fb.json()["embedding"]["values"]
-        return vals[:768]
-    return res.json()["embedding"]["values"]
+    for ver in ["v1beta", "v1"]:
+        for model in ["embedding-001", "text-embedding-004"]:
+            url = f"https://generativelanguage.googleapis.com/{ver}/models/{model}:embedContent?key={GEMINI_API_KEY}"
+            payload = {"content": {"parts": [{"text": text}]}}
+            try:
+                res = requests.post(url, json=payload, timeout=8)
+                if res.status_code == 200:
+                    return res.json()["embedding"]["values"][:768]
+            except Exception:
+                continue
+    raise Exception("Не вдалося отримати вектор від Google API.")
 
-# 3. Вызов LLM генератора
 def generate_llm(prompt: str, temperature: float = 0.2):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": temperature}
-    }
-    res = requests.post(url, json=payload)
-    if res.status_code != 200:
-        raise Exception(f"Ошибка генерации LLM ({res.status_code}): {res.text}")
-    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+    for model in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": temperature}
+        }
+        try:
+            res = requests.post(url, json=payload, timeout=25)
+            if res.status_code == 200:
+                return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception:
+            continue
+    raise Exception("Помилка генерації через Gemini API.")
 
-# 4. Поиск релевантных фактов в Supabase
-def retrieve_facts(query: str, top_k: int = 6, threshold: float = 0.30):
+def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
     vec = get_embedding(query)
-    rpc_res = supabase.rpc("match_facts", {
+    url = f"{SUPABASE_URL}/rest/v1/rpc/match_facts"
+    payload = {
         "query_embedding": vec,
         "match_threshold": threshold,
         "match_count": top_k,
-        "filter_product": "pics.io"
-    }).execute()
-    return rpc_res.data
+        "filter_product": product
+    }
+    try:
+        res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+    except Exception:
+        pass
+    return []
 
-# --- UI ИНТЕРФЕЙС ---
-st.set_page_config(page_title="SEO RAG Engine: Pics.io", layout="wide")
-st.title("🎯 SEO RAG Generator & Fact-Checking Engine")
+def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
+    vec = get_embedding(query)
+    url = f"{SUPABASE_URL}/rest/v1/rpc/match_site_pages"
+    payload = {
+        "query_embedding": vec,
+        "match_threshold": threshold,
+        "match_count": top_k,
+        "filter_product": product
+    }
+    try:
+        res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+    except Exception:
+        pass
+    return []
 
-tab1, tab2 = st.tabs(["✍️ Генерация контента + Доктор", "📊 Аудит покрытия базы (Gap Audit)"])
+def save_generation_to_history(product, author, kw, content_type, text, verdict):
+    url = f"{SUPABASE_URL}/rest/v1/content_history"
+    headers = get_supabase_headers()
+    headers["Prefer"] = "return=minimal"
+    payload = {
+        "product": product,
+        "author": author,
+        "target_keyword": kw,
+        "content_type": content_type,
+        "generated_text": text,
+        "doctor_verdict": verdict,
+        "status": "PASS" if "PASS" in verdict.upper() else "FAIL"
+    }
+    try:
+        requests.post(url, headers=headers, json=payload, timeout=8)
+    except Exception:
+        pass
+
+def get_content_history(product: str):
+    url = f"{SUPABASE_URL}/rest/v1/content_history?product=eq.{product}&order=created_at.desc&limit=20"
+    try:
+        res = requests.get(url, headers=get_supabase_headers(), timeout=8)
+        if res.status_code == 200:
+            return res.json()
+    except Exception:
+        pass
+    return []
+
+st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯")
+
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+    st.session_state["username"] = None
+
+if not st.session_state["authenticated"]:
+    st.markdown("### 🔐 Авторизація в SEO RAG Hub")
+    col1, _ = st.columns([1, 2])
+    with col1:
+        user_input = st.text_input("Логін")
+        pass_input = st.text_input("Пароль", type="password")
+        if st.button("Увійти", type="primary"):
+            if user_input in AUTH_USERS and AUTH_USERS[user_input] == pass_input:
+                st.session_state["authenticated"] = True
+                st.session_state["username"] = user_input
+                st.rerun()
+            else:
+                st.error("Невірний логін або пароль")
+    st.stop()
+
+with st.sidebar:
+    st.success(f"👤 Користувач: **{st.session_state['username']}**")
+    if st.button("🚪 Вийти"):
+        st.session_state["authenticated"] = False
+        st.session_state["username"] = None
+        st.rerun()
+    st.divider()
+    selected_product = st.selectbox(
+        "🏢 Вибір продукту:",
+        options=["pics.io", "toriut"],
+        format_func=lambda x: "Pics.io (DAM)" if x == "pics.io" else "Toriut (PIM)"
+    )
+
+st.title(f"🎯 SEO RAG Hub — {selected_product.upper()}")
+
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "✍️ Генерація + Перелінковка + Доктор",
+    "⚡ Пакетна генерація (Batch)",
+    "🔗 Векторний лінк-білдер",
+    "📊 Gap Audit (Покриття)",
+    "📜 Історія генерацій"
+])
 
 with tab1:
     col1, col2 = st.columns([1, 1])
-
     with col1:
-        st.subheader("Входные SEO-данные")
-        target_kw = st.text_input("Целевой ключевой запрос / Тема", value="Google Drive DAM integration features and limitations")
-        content_type = st.selectbox("Тип контента", ["Feature Landing Page", "SEO Article Section", "Meta Title + Description + FAQ"])
-        top_k = st.slider("Количество фактов из базы", 3, 15, 6)
-        run_btn = st.button("🚀 Найти факты и сгенерировать", type="primary")
+        st.subheader("SEO параметри")
+        target_kw = st.text_input("Цільовий ключовий запит", value="Google Drive DAM integration features and limitations")
+        content_type = st.selectbox("Тип контенту", ["Feature Landing Page", "SEO Article Section", "Meta Title + Description + FAQ"])
+        top_k = st.slider("Кількість фактів", 2, 12, 6)
+        top_links_count = st.slider("Кількість внутрішніх посилань", 1, 6, 3)
+        run_btn = st.button("🚀 Згенерувати контент", type="primary")
 
     if run_btn and target_kw:
-        with st.spinner("Извлечение верифицированных фактов из Supabase..."):
-            facts = retrieve_facts(target_kw, top_k=top_k)
+        with st.spinner("Пошук фактів та сторінок для перелінковки..."):
+            facts = retrieve_facts(target_kw, selected_product, top_k=top_k)
+            pages = retrieve_linking_pages(target_kw, selected_product, top_k=top_links_count)
             
         with col1:
-            st.write(f"**Найдено фактов:** {len(facts)}")
-            with st.expander("Посмотреть извлеченные факты", expanded=True):
+            st.write(f"**Знайдено фактів:** {len(facts)}")
+            with st.expander("Витягнуті факти", expanded=False):
                 if not facts:
-                    st.warning("Фактов выше порога сходства не найдено. Попробуйте уменьшить порог или изменить запрос.")
+                    st.warning("Факти не знайдені.")
                 for f in facts:
-                    st.markdown(f"- **[{f['category'].upper()}]** {f['claim']} *(Score: {f['similarity']:.2f})*")
-                    if f.get("source_url"):
-                        st.caption(f"Источник: {f['source_url']}")
+                    st.markdown(f"- **[{f.get('category','').upper()}]** {f.get('claim','')} *(Score: {f.get('similarity', 0):.2f})*")
+            
+            st.write(f"**Сторінки для перелінковки:** {len(pages)}")
+            with st.expander("Підібрані внутрішні URL", expanded=True):
+                if not pages:
+                    st.warning("Сторінки ще не завантажені.")
+                for p in pages:
+                    st.markdown(f"- [{p.get('title','')}]({p.get('url','')}) *(Score: {p.get('similarity', 0):.2f})*")
 
         if facts:
             with col2:
-                st.subheader("Сгенерированный контент")
-                with st.spinner("Генерация текста..."):
-                    facts_context = "\n".join([f"- [{f['category']}] {f['claim']} (Источник: {f.get('source_url', '')})" for f in facts])
+                st.subheader("Результат генерації")
+                with st.spinner("Створення тексту із вбудовуванням посилань..."):
+                    facts_context = "\n".join([f"- [{f.get('category','')}] {f.get('claim','')} (Source: {f.get('source_url', '')})" for f in facts])
+                    links_context = "\n".join([f"- [{p.get('title','')}]({p.get('url','')})" for p in pages])
                     
                     gen_prompt = f"""
-Ты — профессиональный B2B SaaS SEO-копирайтер для Pics.io.
-Напиши {content_type} под поисковый запрос "{target_kw}".
+Ти — професійний B2B SaaS SEO-копірайтер для {selected_product}.
+Напиши {content_type} під пошуковий запит "{target_kw}".
 
-СТРОГИЕ ПРАВИЛА (Zero Hallucination):
-1. Используй ТОЛЬКО факты из базы ниже.
-2. Категорически запрещено придумывать функции, которых нет в фактах.
-3. Обязательно честно упоминай ограничения (limitation), если они есть в фактах.
-4. Вставляй ссылки на источники в формате Markdown [Источник](url) при описании возможностей.
+СТРОГІ ПРАВИЛА:
+1. Використовуй ТІЛЬКИ факти з бази нижче.
+2. Не вигадуй функцій, яких немає у фактах.
+3. Органічно встав у текст 2-3 релевантні внутрішні посилання з блоку СТОРІНКИ ДЛЯ ПЕРЕЛІНКОВКИ у вигляді Markdown [Анкор](url).
+4. Обов'язково вказуй обмеження (limitation), якщо вони є.
 
-ФАКТЫ ИЗ БАЗЫ:
+ФАКТИ:
 {facts_context}
+
+СТОРІНКИ ДЛЯ ПЕРЕЛІНКОВКИ:
+{links_context}
 """
                     generated_text = generate_llm(gen_prompt, temperature=0.2)
                     st.markdown(generated_text)
 
                 st.divider()
-                st.subheader("🩺 Проверка агентом «Доктор»")
-                with st.spinner("Агент Доктор сверяет факты..."):
+                st.subheader("🩺 Аудит агентом «Доктор»")
+                with st.spinner("Перевірка на галюцинації..."):
                     doc_prompt = f"""
-Ты — строгий фактчекер «Доктор».
-Сверь сгенерированный текст с исходными фактами:
-
-ИСХОДНЫЕ ФАКТЫ:
+Перевір текст на відповідність фактам:
+ФАКТИ:
 {facts_context}
 
-СГЕНЕРИРОВАННЫЙ ТЕКСТ:
+ТЕКСТ:
 {generated_text}
 
-Выдай вердикт:
-1. Есть ли галлюцинации или неподтвержденные утверждения?
-2. Не нарушены ли ограничения (limitation)?
-3. Итоговый статус: ВЕРИФИЦИРОВАНО (PASS) или ТРЕБУЕТ ПРАВКИ (FAIL).
+Вердикт:
+1. Є галюцинації?
+2. Чи коректно вбудовані посилання?
+3. Статус: ВЕРИФІКОВАНО (PASS) або ПОТРІБНІ ПРАВКИ (FAIL).
 """
                     doc_verdict = generate_llm(doc_prompt, temperature=0.0)
                     st.info(doc_verdict)
+                    save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
+                    st.success("💾 Результат збережено в історію!")
 
 with tab2:
-    st.subheader("Аудит покрытия базы знаний (Gap Audit)")
-    st.caption("Проверьте, достаточно ли фактов в базе для ранжирования по запросу.")
-    test_query = st.text_input("Поисковый запрос для аудита", value="Can Pics.io automatically tag faces in video?")
-    if st.button("Проверить сходство"):
-        test_facts = retrieve_facts(test_query, top_k=3, threshold=0.1)
-        if test_facts:
-            best_score = test_facts[0]["similarity"]
-            if best_score > 0.65:
-                st.success(f"Отличное покрытие! Score: {best_score:.2f}")
-            elif best_score > 0.45:
-                st.warning(f"Среднее покрытие ({best_score:.2f}). Рекомендуется добавить точный факт в Excel/Supabase.")
+    st.subheader("⚡ Пакетна генерація")
+    batch_input = st.text_area("Список ключових слів (по одному на рядок)", height=140, value="Google Drive DAM integration\nShopify PIM catalog sync\nAI Visual search workflow")
+    batch_type = st.selectbox("Формат виводу", ["Meta Title + Description + FAQ", "SEO Article Section", "Feature Landing Page"])
+    
+    if st.button("🚀 Запустити пакетну обробку"):
+        keywords = [k.strip() for k in batch_input.split("\n") if k.strip()]
+        results = []
+        bar = st.progress(0)
+        for i, kw in enumerate(keywords):
+            facts = retrieve_facts(kw, selected_product, top_k=4)
+            pages = retrieve_linking_pages(kw, selected_product, top_k=2)
+            facts_txt = "\n".join([f"- {f.get('claim','')}" for f in facts])
+            links_txt = "\n".join([f"- [{p.get('title','')}]({p.get('url','')})" for p in pages])
+            prompt = f"Напиши {batch_type} для {selected_product} за темою '{kw}'. Використовувати тільки ці факти:\n{facts_txt}\nВнутрішні посилання:\n{links_txt}"
+            txt = generate_llm(prompt)
+            results.append({"Keyword": kw, "Generated_Content": txt, "Links": ", ".join([p.get('url','') for p in pages])})
+            bar.progress((i + 1) / len(keywords))
+        
+        df_res = pd.DataFrame(results)
+        st.dataframe(df_res)
+        csv_data = df_res.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Завантажити CSV", data=csv_data, file_name=f"batch_{selected_product}.csv", mime="text/csv")
+
+with tab3:
+    st.subheader("🔗 Векторний підбір сторінок сайту (Internal Link Finder)")
+    search_link_kw = st.text_input("Фрагмент тексту або тема для підбору URL", value="Digital Asset Management for eCommerce")
+    if st.button("Знайти URL для перелінковки"):
+        found_pages = retrieve_linking_pages(search_link_kw, selected_product, top_k=8, threshold=0.0)
+        for fp in found_pages:
+            st.markdown(f"🔗 **[{fp.get('title','')}]({fp.get('url','')})** — `Score: {fp.get('similarity',0):.2f}`")
+            st.caption(f"Markdown код: `[{fp.get('title','')}]({fp.get('url','')})`")
+
+with tab4:
+    st.subheader(f"📊 Аудит покриття бази знань для {selected_product}")
+    audit_kw = st.text_input("Перевірити пошуковий запит на сліпі зони", value=f"Can {selected_product} integrate with HubSpot?")
+    if st.button("Провести аудит"):
+        audit_facts = retrieve_facts(audit_kw, selected_product, top_k=3, threshold=0.0)
+        if audit_facts:
+            best_sc = audit_facts[0].get("similarity", 0)
+            if best_sc > 0.65:
+                st.success(f"Відмінне покриття! Score: {best_sc:.2f}")
+            elif best_sc > 0.45:
+                st.warning(f"Середнє покриття ({best_sc:.2f}). Рекомендовано додати факт.")
             else:
-                st.error(f"Слепая зона ({best_score:.2f})! В базе нет фактов по этому вопросу.")
-            for tf in test_facts:
-                st.write(f"- {tf['claim']} *(Score: {tf['similarity']:.2f})*")
+                st.error(f"Сліпа зона ({best_sc:.2f})! Немає фактів.")
+            for af in audit_facts:
+                st.write(f"- {af.get('claim','')} *(Score: {af.get('similarity',0):.2f})*")
+
+with tab5:
+    st.subheader("📜 Історія генерацій")
+    hist_data = get_content_history(selected_product)
+    if hist_data:
+        df_hist = pd.DataFrame(hist_data)
+        st.dataframe(df_hist[["created_at", "author", "target_keyword", "content_type", "status"]])
+        selected_id = st.selectbox("Відкрити текст за ID:", df_hist["id"].tolist())
+        row = next(r for r in hist_data if r["id"] == selected_id)
+        st.markdown(f"### {row['target_keyword']}")
+        st.markdown(row["generated_text"])
+        st.info(f"**Вердикт Доктора:** {row.get('doctor_verdict','')}")
+    else:
+        st.info("Історія поки порожня.")
