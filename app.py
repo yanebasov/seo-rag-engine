@@ -22,7 +22,7 @@ SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
-# Авторизация
+# Авторизация пользователей
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
 if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
     try:
@@ -58,7 +58,11 @@ if not st.session_state["authenticated"]:
                 st.error("Неверный логин или пароль")
     st.stop()
 
-# Сайдбар
+# Сохранение API ключа в сессии
+if "active_gemini_key" not in st.session_state:
+    st.session_state["active_gemini_key"] = DEFAULT_GEMINI_KEY
+
+# --- САЙДБАР ---
 with st.sidebar:
     st.success(f"👤 Пользователь: **{st.session_state['username']}**")
     if st.button("🚪 Выйти"):
@@ -72,7 +76,11 @@ with st.sidebar:
         format_func=lambda x: "Pics.io (DAM)" if x == "pics.io" else "Toriut (PIM)"
     )
     st.divider()
-    gemini_key = st.text_input("🔑 Gemini API Key:", value=DEFAULT_GEMINI_KEY, type="password").strip().strip("'").strip('"')
+    input_key = st.text_input("🔑 Gemini API Key:", value=st.session_state["active_gemini_key"], type="password")
+    if input_key:
+        st.session_state["active_gemini_key"] = input_key.strip().strip("'").strip('"')
+
+CURRENT_KEY = st.session_state["active_gemini_key"]
 
 def get_supabase_headers():
     return {
@@ -81,15 +89,16 @@ def get_supabase_headers():
         "Content-Type": "application/json"
     }
 
-# Получение эмбеддингов
+# Получение эмбеддинга
 def get_embedding(text: str):
-    if not gemini_key:
-        st.error("Укажите Gemini API Key в левом меню.")
+    if not CURRENT_KEY:
+        st.error("Укажите Gemini API Key в меню слева.")
         return None
 
-    embed_models = ["text-embedding-004", "gemini-embedding-exp-03-07", "embedding-001"]
-    for m in embed_models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:embedContent?key={gemini_key}"
+    models = ["text-embedding-004", "embedding-001"]
+    last_response = ""
+    for m in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:embedContent?key={CURRENT_KEY}"
         payload = {"content": {"parts": [{"text": text}]}}
         try:
             res = requests.post(url, json=payload, timeout=10)
@@ -97,20 +106,23 @@ def get_embedding(text: str):
                 data = res.json()
                 if "embedding" in data and "values" in data["embedding"]:
                     return data["embedding"]["values"][:768]
-        except Exception:
+            last_response = f"[{m}] Status {res.status_code}: {res.text}"
+        except Exception as e:
+            last_response = str(e)
             continue
 
-    st.error("Не удалось рассчитать вектор эмбеддинга.")
+    st.error(f"⚠️ Ошибка Google Embeddings: {last_response}")
     return None
 
-# Генерация текста через новые модели
+# Генерация текста через актуальные модели (gemini-1.5-flash / gemini-2.0-flash)
 def generate_llm(prompt: str, temperature: float = 0.2):
-    if not gemini_key:
+    if not CURRENT_KEY:
         return "Ошибка: отсутствует Gemini API Key."
 
-    llm_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"]
-    for m in llm_models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={gemini_key}"
+    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    last_response = ""
+    for m in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={CURRENT_KEY}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": temperature}
@@ -118,11 +130,14 @@ def generate_llm(prompt: str, temperature: float = 0.2):
         try:
             res = requests.post(url, json=payload, timeout=30)
             if res.status_code == 200:
-                return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
+                data = res.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            last_response = f"[{m}] Status {res.status_code}: {res.text}"
+        except Exception as e:
+            last_response = str(e)
             continue
 
-    st.error("Ошибка вызова генеративных моделей Google.")
+    st.error(f"⚠️ Ошибка генерации Google LLM: {last_response}")
     return "Не удалось сгенерировать текст."
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
@@ -140,8 +155,9 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             return res.json()
-    except Exception:
-        pass
+        st.error(f"Supabase RPC Error: {res.status_code} - {res.text}")
+    except Exception as e:
+        st.error(f"Ошибка базы данных: {e}")
     return []
 
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
