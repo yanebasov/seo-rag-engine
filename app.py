@@ -22,7 +22,6 @@ SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
-# Авторизация
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
 if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
     try:
@@ -58,10 +57,6 @@ if not st.session_state["authenticated"]:
                 st.error("Неверный логин или пароль")
     st.stop()
 
-# Инициализация и сохранение API ключа в сессии
-if "gemini_api_key" not in st.session_state:
-    st.session_state["gemini_api_key"] = DEFAULT_GEMINI_KEY
-
 # --- САЙДБАР ---
 with st.sidebar:
     st.success(f"👤 Пользователь: **{st.session_state['username']}**")
@@ -71,16 +66,46 @@ with st.sidebar:
         st.rerun()
     st.divider()
     selected_product = st.selectbox(
-        "🏢 Выбор продукта:",
+        "🏢 Продукт:",
         options=["pics.io", "toriut"],
         format_func=lambda x: "Pics.io (DAM)" if x == "pics.io" else "Toriut (PIM)"
     )
     st.divider()
-    key_input = st.text_input("🔑 Gemini API Key:", value=st.session_state["gemini_api_key"], type="password")
-    if key_input:
-        st.session_state["gemini_api_key"] = key_input.strip().strip("'").strip('"')
+    gemini_key = st.text_input("🔑 Gemini API Key:", value=DEFAULT_GEMINI_KEY, type="password").strip().strip("'").strip('"')
 
-CURRENT_GEMINI_KEY = st.session_state["gemini_api_key"]
+# Автоматическое обнаружение точных моделей по ключу
+def resolve_gemini_models(api_key):
+    if not api_key:
+        return None, None, "Введите Gemini API Key"
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        res = requests.get(url, timeout=5)
+        if res.status_code == 200:
+            models_data = res.json().get("models", [])
+            embed_model, gen_model = None, None
+            for m in models_data:
+                methods = m.get("supportedGenerationMethods", [])
+                m_name = m["name"] # e.g. 'models/text-embedding-004'
+                if not embed_model and "embedContent" in methods:
+                    embed_model = m_name
+                if "generateContent" in methods:
+                    if "flash" in m_name and not gen_model:
+                        gen_model = m_name
+                    elif not gen_model:
+                        gen_model = m_name
+            return embed_model, gen_model, "OK"
+        else:
+            return None, None, f"Ошибка ключа: {res.status_code}"
+    except Exception as e:
+        return None, None, str(e)
+
+EMBED_MODEL_NAME, GEN_MODEL_NAME, KEY_STATUS = resolve_gemini_models(gemini_key)
+
+with st.sidebar:
+    if KEY_STATUS == "OK":
+        st.caption(f"🟢 **Подключено**\n\n- Эмбеддинги: `{EMBED_MODEL_NAME}`\n- Генерация: `{GEN_MODEL_NAME}`")
+    else:
+        st.error(f"⚠️ {KEY_STATUS}")
 
 def get_supabase_headers():
     return {
@@ -90,59 +115,37 @@ def get_supabase_headers():
     }
 
 def get_embedding(text: str):
-    if not CURRENT_GEMINI_KEY:
-        st.error("Пожалуйста, вставьте рабочий Gemini API Key в левом меню.")
+    if not gemini_key or not EMBED_MODEL_NAME:
+        st.error("Gemini API Key не настроен или недействителен.")
         return None
 
-    models = ["text-embedding-004", "embedding-001"]
-    last_err = ""
-    for m in models:
-        for ver in ["v1beta", "v1"]:
-            url = f"https://generativelanguage.googleapis.com/{ver}/models/{m}:embedContent?key={CURRENT_GEMINI_KEY}"
-            payload = {"content": {"parts": [{"text": text}]}}
-            try:
-                res = requests.post(url, json=payload, timeout=10)
-                if res.status_code == 200:
-                    data = res.json()
-                    if "embedding" in data and "values" in data["embedding"]:
-                        return data["embedding"]["values"][:768]
-                elif res.status_code != 404:
-                    st.error(f"⚠️ Ошибка Google API ({res.status_code}): {res.text}")
-                    return None
-                last_err = f"{res.status_code}: {res.text}"
-            except Exception as e:
-                last_err = str(e)
-                continue
-
-    st.error(f"Не удалось получить эмбеддинг: {last_err}")
+    url = f"https://generativelanguage.googleapis.com/v1beta/{EMBED_MODEL_NAME}:embedContent?key={gemini_key}"
+    payload = {"content": {"parts": [{"text": text}]}}
+    try:
+        res = requests.post(url, json=payload, timeout=10)
+        if res.status_code == 200:
+            return res.json()["embedding"]["values"][:768]
+        st.error(f"Google Embeddings Error ({res.status_code}): {res.text}")
+    except Exception as e:
+        st.error(f"Ошибка получения вектора: {e}")
     return None
 
 def generate_llm(prompt: str, temperature: float = 0.2):
-    if not CURRENT_GEMINI_KEY:
-        return "Ошибка: отсутствует Gemini API Key."
+    if not gemini_key or not GEN_MODEL_NAME:
+        return "Ошибка: модель генерации недоступна."
 
-    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
-    last_err = ""
-    for m in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={CURRENT_GEMINI_KEY}"
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": temperature}
-        }
-        try:
-            res = requests.post(url, json=payload, timeout=30)
-            if res.status_code == 200:
-                data = res.json()
-                return data["candidates"][0]["content"]["parts"][0]["text"]
-            elif res.status_code != 404:
-                st.error(f"⚠️ Ошибка генерации ({res.status_code}): {res.text}")
-                return "Ошибка генерации ответа от Google API."
-            last_err = f"{res.status_code}: {res.text}"
-        except Exception as e:
-            last_err = str(e)
-            continue
-
-    st.error(f"⚠️ Ошибка вызова моделей LLM: {last_err}")
+    url = f"https://generativelanguage.googleapis.com/v1beta/{GEN_MODEL_NAME}:generateContent?key={gemini_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": temperature}
+    }
+    try:
+        res = requests.post(url, json=payload, timeout=30)
+        if res.status_code == 200:
+            return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        st.error(f"Google LLM Error ({res.status_code}): {res.text}")
+    except Exception as e:
+        st.error(f"Ошибка вызова LLM: {e}")
     return "Не удалось сгенерировать текст."
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
