@@ -22,7 +22,6 @@ SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
-# Надежная авторизация
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
 if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
     try:
@@ -83,42 +82,74 @@ def get_supabase_headers():
         "Content-Type": "application/json"
     }
 
+# Автоматический поиск точной работающей модели в аккаунте Google
 def get_embedding(text: str):
     if not CURRENT_GEMINI_KEY:
-        st.error("Пожалуйста, укажите Gemini API Key в левом меню.")
+        st.error("Укажите Gemini API Key в меню слева.")
         return None
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={CURRENT_GEMINI_KEY}"
-    payload = {
-        "model": "models/text-embedding-004",
-        "content": {"parts": [{"text": text}]}
-    }
-    try:
-        res = requests.post(url, json=payload, timeout=12)
-        if res.status_code == 200:
-            data = res.json()
-            return data["embedding"]["values"][:768]
-        st.error(f"Google Embeddings Error ({res.status_code}): {res.text}")
-    except Exception as e:
-        st.error(f"Сетевая ошибка Embeddings: {e}")
+    # 1. Пробуем динамически получить список доступных моделей аккаунта
+    candidate_urls = []
+    for ver in ["v1beta", "v1"]:
+        try:
+            r = requests.get(f"https://generativelanguage.googleapis.com/{ver}/models?key={CURRENT_GEMINI_KEY}", timeout=5)
+            if r.status_code == 200:
+                for m in r.json().get("models", []):
+                    if "embedContent" in m.get("supportedGenerationMethods", []):
+                        m_name = m["name"]
+                        candidate_urls.append(f"https://generativelanguage.googleapis.com/{ver}/{m_name}:embedContent?key={CURRENT_GEMINI_KEY}")
+        except Exception:
+            pass
+
+    # 2. Фолбэк список на случай задержки listModels
+    fallback_endpoints = [
+        f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={CURRENT_GEMINI_KEY}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key={CURRENT_GEMINI_KEY}",
+        f"https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key={CURRENT_GEMINI_KEY}",
+        f"https://generativelanguage.googleapis.com/v1/models/embedding-001:embedContent?key={CURRENT_GEMINI_KEY}"
+    ]
+    
+    all_urls = list(dict.fromkeys(candidate_urls + fallback_endpoints))
+    last_err = ""
+
+    for url in all_urls:
+        try:
+            payload = {"content": {"parts": [{"text": text}]}}
+            res = requests.post(url, json=payload, timeout=8)
+            if res.status_code == 200:
+                data = res.json()
+                if "embedding" in data and "values" in data["embedding"]:
+                    return data["embedding"]["values"][:768]
+            last_err = f"{res.status_code}: {res.text}"
+        except Exception as e:
+            last_err = str(e)
+            continue
+
+    st.error(f"⚠️ Ошибка получения вектора эмбеддинга: {last_err}")
     return None
 
 def generate_llm(prompt: str, temperature: float = 0.2):
     if not CURRENT_GEMINI_KEY:
         return "Ошибка: отсутствует Gemini API Key."
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={CURRENT_GEMINI_KEY}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": temperature}
-    }
-    try:
-        res = requests.post(url, json=payload, timeout=25)
-        if res.status_code == 200:
-            return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        st.error(f"Google LLM Error ({res.status_code}): {res.text}")
-    except Exception as e:
-        st.error(f"Сетевая ошибка LLM: {e}")
+    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"]
+    last_err = ""
+    for m in models:
+        for ver in ["v1beta", "v1"]:
+            try:
+                url = f"https://generativelanguage.googleapis.com/{ver}/models/{m}:generateContent?key={CURRENT_GEMINI_KEY}"
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": temperature}
+                }
+                res = requests.post(url, json=payload, timeout=25)
+                if res.status_code == 200:
+                    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                last_err = f"{res.status_code}: {res.text}"
+            except Exception as e:
+                last_err = str(e)
+                continue
+    st.error(f"⚠️ Ошибка генерации текста Gemini: {last_err}")
     return "Не удалось сгенерировать текст."
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
@@ -136,9 +167,8 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             return res.json()
-        st.error(f"Supabase RPC Error: {res.status_code} - {res.text}")
-    except Exception as e:
-        st.error(f"Ошибка базы данных: {e}")
+    except Exception:
+        pass
     return []
 
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
@@ -307,8 +337,6 @@ with tab3:
     search_link_kw = st.text_input("Фрагмент текста или тема для подбора URL", value="Digital Asset Management for eCommerce")
     if st.button("Найти URL для перелинковки"):
         found_pages = retrieve_linking_pages(search_link_kw, selected_product, top_k=8, threshold=0.0)
-        if not found_pages:
-            st.info("Страницы перелинковки еще не загружены в таблицу site_pages.")
         for fp in found_pages:
             st.markdown(f"🔗 **[{fp.get('title','')}]({fp.get('url','')})** — `Score: {fp.get('similarity',0):.2f}`")
             st.caption(f"Markdown код: `[{fp.get('title','')}]({fp.get('url','')})`")
