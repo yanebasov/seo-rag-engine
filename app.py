@@ -22,16 +22,18 @@ SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
+# Надежная авторизация
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
-auth_raw = get_secret("AUTH_USERS")
-if auth_raw:
-    if isinstance(auth_raw, dict):
-        AUTH_USERS = auth_raw
-    elif isinstance(auth_raw, str):
-        try:
-            AUTH_USERS = json.loads(auth_raw)
-        except Exception:
-            pass
+if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
+    try:
+        sec_auth = st.secrets["AUTH_USERS"]
+        if hasattr(sec_auth, "items"):
+            AUTH_USERS.update({str(k).lower().strip(): str(v).strip() for k, v in sec_auth.items()})
+        elif isinstance(sec_auth, str) and sec_auth.strip():
+            parsed = json.loads(sec_auth.replace("'", '"'))
+            AUTH_USERS.update({str(k).lower().strip(): str(v).strip() for k, v in parsed.items()})
+    except Exception:
+        pass
 
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯")
 
@@ -46,9 +48,11 @@ if not st.session_state["authenticated"]:
         user_input = st.text_input("Логин")
         pass_input = st.text_input("Пароль", type="password")
         if st.button("Войти", type="primary"):
-            if user_input in AUTH_USERS and AUTH_USERS[user_input] == pass_input:
+            u = user_input.strip().lower()
+            p = pass_input.strip()
+            if u in AUTH_USERS and AUTH_USERS[u] == p:
                 st.session_state["authenticated"] = True
-                st.session_state["username"] = user_input
+                st.session_state["username"] = u
                 st.rerun()
             else:
                 st.error("Неверный логин или пароль")
@@ -81,7 +85,7 @@ def get_supabase_headers():
 
 def get_embedding(text: str):
     if not CURRENT_GEMINI_KEY:
-        st.error("Пожалуйста, введите Gemini API Key в левом меню.")
+        st.error("Пожалуйста, укажите Gemini API Key в левом меню.")
         return None
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={CURRENT_GEMINI_KEY}"
