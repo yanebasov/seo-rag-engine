@@ -70,51 +70,7 @@ with st.sidebar:
     st.divider()
     gemini_key_input = st.text_input("🔑 Gemini API Key:", value=DEFAULT_GEMINI_KEY, type="password")
 
-CURRENT_GEMINI_KEY = gemini_key_input.strip()
-
-# Автоматическое определение эндпоинтов Google API
-@st.cache_resource
-def detect_api_endpoints(api_key):
-    if not api_key:
-        return None, None, "API ключ отсутствует"
-    
-    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    embed_url, gen_url = None, None
-    status_msg = []
-
-    # 1. Поиск модели эмбеддингов
-    for model in ["text-embedding-004", "embedding-001"]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent?key={api_key}"
-        try:
-            r = requests.post(url, headers=headers, json={"content": {"parts": [{"text": "test"}]}}, timeout=6)
-            if r.status_code == 200:
-                embed_url = url
-                status_msg.append(f"Embeddings: `{model}`")
-                break
-        except Exception:
-            pass
-
-    # 2. Поиск модели генерации
-    for model in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        try:
-            r = requests.post(url, headers=headers, json={"contents": [{"parts": [{"text": "hi"}]}]}, timeout=6)
-            if r.status_code == 200:
-                gen_url = url
-                status_msg.append(f"LLM: `{model}`")
-                break
-        except Exception:
-            pass
-
-    return embed_url, gen_url, " | ".join(status_msg)
-
-EMBED_URL, GEN_URL, API_STATUS = detect_api_endpoints(CURRENT_GEMINI_KEY)
-
-with st.sidebar:
-    if EMBED_URL and GEN_URL:
-        st.caption(f"⚡ {API_STATUS}")
-    else:
-        st.error("⚠️ Не удалось подключиться к моделям Gemini. Проверьте валидность API ключа.")
+CURRENT_GEMINI_KEY = gemini_key_input.strip().strip("'").strip('"')
 
 def get_supabase_headers():
     return {
@@ -124,35 +80,41 @@ def get_supabase_headers():
     }
 
 def get_embedding(text: str):
-    if not EMBED_URL:
-        st.error("Модель эмбеддингов недоступна. Проверьте Gemini API Key.")
+    if not CURRENT_GEMINI_KEY:
+        st.error("Пожалуйста, введите Gemini API Key в левом меню.")
         return None
-    headers = {"Content-Type": "application/json", "x-goog-api-key": CURRENT_GEMINI_KEY}
-    payload = {"content": {"parts": [{"text": text}]}}
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={CURRENT_GEMINI_KEY}"
+    payload = {
+        "model": "models/text-embedding-004",
+        "content": {"parts": [{"text": text}]}
+    }
     try:
-        res = requests.post(EMBED_URL, headers=headers, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=12)
         if res.status_code == 200:
-            return res.json()["embedding"]["values"][:768]
-        st.error(f"Google Embeddings Error: {res.status_code} - {res.text}")
+            data = res.json()
+            return data["embedding"]["values"][:768]
+        st.error(f"Google Embeddings Error ({res.status_code}): {res.text}")
     except Exception as e:
-        st.error(f"Ошибка запроса эмбеддинга: {e}")
+        st.error(f"Сетевая ошибка Embeddings: {e}")
     return None
 
 def generate_llm(prompt: str, temperature: float = 0.2):
-    if not GEN_URL:
-        return "Ошибка: модель генерации Gemini недоступна."
-    headers = {"Content-Type": "application/json", "x-goog-api-key": CURRENT_GEMINI_KEY}
+    if not CURRENT_GEMINI_KEY:
+        return "Ошибка: отсутствует Gemini API Key."
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={CURRENT_GEMINI_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": temperature}
     }
     try:
-        res = requests.post(GEN_URL, headers=headers, json=payload, timeout=25)
+        res = requests.post(url, json=payload, timeout=25)
         if res.status_code == 200:
             return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        st.error(f"Google Generation Error: {res.status_code} - {res.text}")
+        st.error(f"Google LLM Error ({res.status_code}): {res.text}")
     except Exception as e:
-        st.error(f"Ошибка LLM: {e}")
+        st.error(f"Сетевая ошибка LLM: {e}")
     return "Не удалось сгенерировать текст."
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
@@ -170,8 +132,9 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             return res.json()
-    except Exception:
-        pass
+        st.error(f"Supabase RPC Error: {res.status_code} - {res.text}")
+    except Exception as e:
+        st.error(f"Ошибка базы данных: {e}")
     return []
 
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
