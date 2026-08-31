@@ -20,7 +20,7 @@ def get_secret(key, default=""):
 
 SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
-GEMINI_API_KEY = get_secret("GEMINI_API_KEY", "")
+DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
 auth_raw = get_secret("AUTH_USERS")
@@ -33,6 +33,45 @@ if auth_raw:
         except Exception:
             pass
 
+st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯")
+
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+    st.session_state["username"] = None
+
+if not st.session_state["authenticated"]:
+    st.markdown("### 🔐 Авторизация в SEO RAG Hub")
+    col1, _ = st.columns([1, 2])
+    with col1:
+        user_input = st.text_input("Логин")
+        pass_input = st.text_input("Пароль", type="password")
+        if st.button("Войти", type="primary"):
+            if user_input in AUTH_USERS and AUTH_USERS[user_input] == pass_input:
+                st.session_state["authenticated"] = True
+                st.session_state["username"] = user_input
+                st.rerun()
+            else:
+                st.error("Неверный логин или пароль")
+    st.stop()
+
+# --- САЙДБАР ---
+with st.sidebar:
+    st.success(f"👤 Пользователь: **{st.session_state['username']}**")
+    if st.button("🚪 Выйти"):
+        st.session_state["authenticated"] = False
+        st.session_state["username"] = None
+        st.rerun()
+    st.divider()
+    selected_product = st.selectbox(
+        "🏢 Выбор продукта:",
+        options=["pics.io", "toriut"],
+        format_func=lambda x: "Pics.io (DAM)" if x == "pics.io" else "Toriut (PIM)"
+    )
+    st.divider()
+    gemini_key_input = st.text_input("🔑 Gemini API Key:", value=DEFAULT_GEMINI_KEY, type="password")
+
+CURRENT_GEMINI_KEY = gemini_key_input.strip()
+
 def get_supabase_headers():
     return {
         "apikey": SUPABASE_KEY,
@@ -40,29 +79,33 @@ def get_supabase_headers():
         "Content-Type": "application/json"
     }
 
-# Надежное получение вектора эмбеддинга
+def get_gemini_headers():
+    return {
+        "Content-Type": "application/json",
+        "x-goog-api-key": CURRENT_GEMINI_KEY
+    }
+
 def get_embedding(text: str):
     endpoints = [
-        f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}",
-        f"https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key={GEMINI_API_KEY}",
-        f"https://generativelanguage.googleapis.com/v1/models/embedding-001:embedContent?key={GEMINI_API_KEY}"
+        "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent",
+        "https://generativelanguage.googleapis.com/v1/models/embedding-001:embedContent"
     ]
-    
     last_err = ""
     for url in endpoints:
         try:
             payload = {"content": {"parts": [{"text": text}]}}
-            res = requests.post(url, json=payload, timeout=10)
+            res = requests.post(url, headers=get_gemini_headers(), json=payload, timeout=10)
             if res.status_code == 200:
                 data = res.json()
                 if "embedding" in data and "values" in data["embedding"]:
                     return data["embedding"]["values"][:768]
-            last_err = f"Status {res.status_code}: {res.text}"
+            last_err = f"{res.status_code}: {res.text}"
         except Exception as e:
             last_err = str(e)
             continue
             
-    st.error(f"⚠️ Ошибка получения вектора от Google API: {last_err}")
+    st.error(f"⚠️ Ошибка Gemini Embeddings: {last_err}")
     return None
 
 def generate_llm(prompt: str, temperature: float = 0.2):
@@ -71,20 +114,20 @@ def generate_llm(prompt: str, temperature: float = 0.2):
     for m in models:
         for ver in ["v1beta", "v1"]:
             try:
-                url = f"https://generativelanguage.googleapis.com/{ver}/models/{m}:generateContent?key={GEMINI_API_KEY}"
+                url = f"https://generativelanguage.googleapis.com/{ver}/models/{m}:generateContent"
                 payload = {
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {"temperature": temperature}
                 }
-                res = requests.post(url, json=payload, timeout=25)
+                res = requests.post(url, headers=get_gemini_headers(), json=payload, timeout=25)
                 if res.status_code == 200:
                     return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                last_err = f"Status {res.status_code}: {res.text}"
+                last_err = f"{res.status_code}: {res.text}"
             except Exception as e:
                 last_err = str(e)
                 continue
-    st.error(f"⚠️ Ошибка генерации текста через Gemini API: {last_err}")
-    return "Не удалось сгенерировать текст. Проверьте настройки API ключа."
+    st.error(f"⚠️ Ошибка Gemini Generation: {last_err}")
+    return "Не удалось сгенерировать текст."
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
     vec = get_embedding(query)
@@ -101,9 +144,8 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             return res.json()
-        st.error(f"⚠️ Ошибка Supabase RPC (match_facts): {res.status_code} - {res.text}")
-    except Exception as e:
-        st.error(f"⚠️ Ошибка подключения к базе Supabase: {e}")
+    except Exception:
+        pass
     return []
 
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
@@ -152,42 +194,6 @@ def get_content_history(product: str):
     except Exception:
         pass
     return []
-
-# --- UI ---
-st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯")
-
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-    st.session_state["username"] = None
-
-if not st.session_state["authenticated"]:
-    st.markdown("### 🔐 Авторизация в SEO RAG Hub")
-    col1, _ = st.columns([1, 2])
-    with col1:
-        user_input = st.text_input("Логин")
-        pass_input = st.text_input("Пароль", type="password")
-        if st.button("Войти", type="primary"):
-            if user_input in AUTH_USERS and AUTH_USERS[user_input] == pass_input:
-                st.session_state["authenticated"] = True
-                st.session_state["username"] = user_input
-                st.rerun()
-            else:
-                st.error("Неверный логин или пароль")
-    st.stop()
-
-# --- САЙДБАР ---
-with st.sidebar:
-    st.success(f"👤 Пользователь: **{st.session_state['username']}**")
-    if st.button("🚪 Выйти"):
-        st.session_state["authenticated"] = False
-        st.session_state["username"] = None
-        st.rerun()
-    st.divider()
-    selected_product = st.selectbox(
-        "🏢 Выбор продукта:",
-        options=["pics.io", "toriut"],
-        format_func=lambda x: "Pics.io (DAM)" if x == "pics.io" else "Toriut (PIM)"
-    )
 
 st.title(f"🎯 SEO RAG Hub — {selected_product.upper()}")
 
