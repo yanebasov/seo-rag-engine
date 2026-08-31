@@ -3,18 +3,21 @@ import json
 import streamlit as st
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 def get_secret(key, default=""):
     if hasattr(st, "secrets") and key in st.secrets:
         return st.secrets[key]
     return os.getenv(key, default)
 
-SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
-SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
-GEMINI_API_KEY = get_secret("GEMINI_API_KEY", "")
+SUPABASE_URL = str(get_secret("SUPABASE_URL", "")).rstrip("/")
+SUPABASE_KEY = str(get_secret("SUPABASE_KEY", ""))
+GEMINI_API_KEY = str(get_secret("GEMINI_API_KEY", ""))
 
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
 auth_raw = get_secret("AUTH_USERS")
@@ -48,18 +51,19 @@ def get_embedding(text: str):
     raise Exception("Не удалось получить вектор от Google API.")
 
 def generate_llm(prompt: str, temperature: float = 0.2):
-    for model in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": temperature}
-        }
-        try:
-            res = requests.post(url, json=payload, timeout=25)
-            if res.status_code == 200:
-                return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
-            continue
+    for ver in ["v1beta", "v1"]:
+        for model in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]:
+            url = f"https://generativelanguage.googleapis.com/{ver}/models/{model}:generateContent?key={GEMINI_API_KEY}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": temperature}
+            }
+            try:
+                res = requests.post(url, json=payload, timeout=25)
+                if res.status_code == 200:
+                    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+            except Exception:
+                continue
     raise Exception("Ошибка генерации через Gemini API.")
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
@@ -124,6 +128,7 @@ def get_content_history(product: str):
         pass
     return []
 
+# --- UI ---
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯")
 
 if "authenticated" not in st.session_state:
@@ -145,6 +150,7 @@ if not st.session_state["authenticated"]:
                 st.error("Неверный логин или пароль")
     st.stop()
 
+# --- САЙДБАР ---
 with st.sidebar:
     st.success(f"👤 Пользователь: **{st.session_state['username']}**")
     if st.button("🚪 Выйти"):
@@ -168,6 +174,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📜 История генераций"
 ])
 
+# 1. ГЕНЕРАЦИЯ
 with tab1:
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -245,6 +252,7 @@ with tab1:
                     save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
                     st.success("💾 Результат сохранен в историю!")
 
+# 2. ПАКЕТНАЯ ГЕНЕРАЦИЯ
 with tab2:
     st.subheader("⚡ Пакетная генерация")
     batch_input = st.text_area("Список ключевых слов (по одному на строку)", height=140, value="Google Drive DAM integration\nShopify PIM catalog sync\nAI Visual search workflow")
@@ -269,6 +277,7 @@ with tab2:
         csv_data = df_res.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Скачать CSV", data=csv_data, file_name=f"batch_{selected_product}.csv", mime="text/csv")
 
+# 3. ВЕКТОРНЫЙ ЛИНК-БИЛДЕР
 with tab3:
     st.subheader("🔗 Векторный подбор страниц сайта (Internal Link Finder)")
     search_link_kw = st.text_input("Фрагмент текста или тема для подбора URL", value="Digital Asset Management for eCommerce")
@@ -278,6 +287,7 @@ with tab3:
             st.markdown(f"🔗 **[{fp.get('title','')}]({fp.get('url','')})** — `Score: {fp.get('similarity',0):.2f}`")
             st.caption(f"Markdown код: `[{fp.get('title','')}]({fp.get('url','')})`")
 
+# 4. GAP AUDIT
 with tab4:
     st.subheader(f"📊 Аудит покрытия базы знаний для {selected_product}")
     audit_kw = st.text_input("Проверить поисковый запрос на слепые зоны", value=f"Can {selected_product} integrate with HubSpot?")
@@ -294,6 +304,17 @@ with tab4:
             for af in audit_facts:
                 st.write(f"- {af.get('claim','')} *(Score: {af.get('similarity',0):.2f})*")
 
+# 5. ИСТОРИЯ
 with tab5:
     st.subheader("📜 История генераций")
-    hist_data = get_content_history(selected
+    hist_data = get_content_history(selected_product)
+    if hist_data:
+        df_hist = pd.DataFrame(hist_data)
+        st.dataframe(df_hist[["created_at", "author", "target_keyword", "content_type", "status"]])
+        selected_id = st.selectbox("Открыть текст по ID:", df_hist["id"].tolist())
+        row = next(r for r in hist_data if r["id"] == selected_id)
+        st.markdown(f"### {row['target_keyword']}")
+        st.markdown(row["generated_text"])
+        st.info(f"**Вердикт Доктора:** {row.get('doctor_verdict','')}")
+    else:
+        st.info("История пока пуста.")
