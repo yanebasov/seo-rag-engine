@@ -40,70 +40,56 @@ def get_supabase_headers():
         "Content-Type": "application/json"
     }
 
-# Автоматический подбор доступных рабочих эндпоинтов Google API
-@st.cache_resource
-def get_working_models():
-    embed_endpoint = None
-    gen_endpoint = None
-    err_logs = []
-
-    for ver in ["v1beta", "v1"]:
-        try:
-            url = f"https://generativelanguage.googleapis.com/{ver}/models?key={GEMINI_API_KEY}"
-            res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                models = res.json().get("models", [])
-                for m in models:
-                    m_name = m["name"].replace("models/", "")
-                    methods = m.get("supportedGenerationMethods", [])
-
-                    # Проверка модели эмбеддингов
-                    if not embed_endpoint and ("embedContent" in methods or "batchEmbedContents" in methods):
-                        test_url = f"https://generativelanguage.googleapis.com/{ver}/models/{m_name}:embedContent?key={GEMINI_API_KEY}"
-                        test_res = requests.post(test_url, json={"content": {"parts": [{"text": "test"}]}}, timeout=5)
-                        if test_res.status_code == 200:
-                            embed_endpoint = test_url
-
-                    # Проверка модели генерации текста
-                    if not gen_endpoint and "generateContent" in methods:
-                        test_url = f"https://generativelanguage.googleapis.com/{ver}/models/{m_name}:generateContent?key={GEMINI_API_KEY}"
-                        test_res = requests.post(test_url, json={"contents": [{"parts": [{"text": "hi"}]}]}, timeout=5)
-                        if test_res.status_code == 200:
-                            gen_endpoint = test_url
-            else:
-                err_logs.append(f"{ver}: {res.status_code} - {res.text}")
-        except Exception as e:
-            err_logs.append(str(e))
-
-    # Резервные прямые эндпоинты
-    if not embed_endpoint:
-        embed_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}"
-    if not gen_endpoint:
-        gen_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-
-    return embed_endpoint, gen_endpoint
-
-EMBED_ENDPOINT, GEN_ENDPOINT = get_working_models()
-
+# Надежное получение вектора эмбеддинга
 def get_embedding(text: str):
-    payload = {"content": {"parts": [{"text": text}]}}
-    res = requests.post(EMBED_ENDPOINT, json=payload, timeout=10)
-    if res.status_code == 200:
-        return res.json()["embedding"]["values"][:768]
-    raise Exception(f"Google Embeddings Error ({res.status_code}): {res.text}")
+    endpoints = [
+        f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key={GEMINI_API_KEY}",
+        f"https://generativelanguage.googleapis.com/v1/models/embedding-001:embedContent?key={GEMINI_API_KEY}"
+    ]
+    
+    last_err = ""
+    for url in endpoints:
+        try:
+            payload = {"content": {"parts": [{"text": text}]}}
+            res = requests.post(url, json=payload, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                if "embedding" in data and "values" in data["embedding"]:
+                    return data["embedding"]["values"][:768]
+            last_err = f"Status {res.status_code}: {res.text}"
+        except Exception as e:
+            last_err = str(e)
+            continue
+            
+    st.error(f"⚠️ Ошибка получения вектора от Google API: {last_err}")
+    return None
 
 def generate_llm(prompt: str, temperature: float = 0.2):
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": temperature}
-    }
-    res = requests.post(GEN_ENDPOINT, json=payload, timeout=25)
-    if res.status_code == 200:
-        return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-    raise Exception(f"Google LLM Error ({res.status_code}): {res.text}")
+    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    last_err = ""
+    for m in models:
+        for ver in ["v1beta", "v1"]:
+            try:
+                url = f"https://generativelanguage.googleapis.com/{ver}/models/{m}:generateContent?key={GEMINI_API_KEY}"
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": temperature}
+                }
+                res = requests.post(url, json=payload, timeout=25)
+                if res.status_code == 200:
+                    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                last_err = f"Status {res.status_code}: {res.text}"
+            except Exception as e:
+                last_err = str(e)
+                continue
+    st.error(f"⚠️ Ошибка генерации текста через Gemini API: {last_err}")
+    return "Не удалось сгенерировать текст. Проверьте настройки API ключа."
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
     vec = get_embedding(query)
+    if not vec:
+        return []
     url = f"{SUPABASE_URL}/rest/v1/rpc/match_facts"
     payload = {
         "query_embedding": vec,
@@ -111,14 +97,19 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         "match_count": top_k,
         "filter_product": product
     }
-    res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
-    if res.status_code == 200:
-        return res.json()
-    st.error(f"Supabase RPC Error: {res.text}")
+    try:
+        res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+        st.error(f"⚠️ Ошибка Supabase RPC (match_facts): {res.status_code} - {res.text}")
+    except Exception as e:
+        st.error(f"⚠️ Ошибка подключения к базе Supabase: {e}")
     return []
 
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
     vec = get_embedding(query)
+    if not vec:
+        return []
     url = f"{SUPABASE_URL}/rest/v1/rpc/match_site_pages"
     payload = {
         "query_embedding": vec,
@@ -126,9 +117,12 @@ def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: 
         "match_count": top_k,
         "filter_product": product
     }
-    res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
-    if res.status_code == 200:
-        return res.json()
+    try:
+        res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+    except Exception:
+        pass
     return []
 
 def save_generation_to_history(product, author, kw, content_type, text, verdict):
@@ -159,7 +153,7 @@ def get_content_history(product: str):
         pass
     return []
 
-# --- UI & AUTH ---
+# --- UI ---
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯")
 
 if "authenticated" not in st.session_state:
@@ -223,7 +217,7 @@ with tab1:
             
         with col1:
             st.write(f"**Найдено фактов:** {len(facts)}")
-            with st.expander("Извлеченные факты", expanded=False):
+            with st.expander("Извлеченные факты", expanded=True):
                 if not facts:
                     st.warning("Факты не найдены.")
                 for f in facts:
@@ -232,7 +226,7 @@ with tab1:
             st.write(f"**Страницы для перелинковки:** {len(pages)}")
             with st.expander("Подобранные внутренние URL", expanded=True):
                 if not pages:
-                    st.warning("Страницы еще не загружены.")
+                    st.info("Страницы еще не загружены в базу.")
                 for p in pages:
                     st.markdown(f"- [{p.get('title','')}]({p.get('url','')}) *(Score: {p.get('similarity', 0):.2f})*")
 
@@ -241,7 +235,7 @@ with tab1:
                 st.subheader("Результат генерации")
                 with st.spinner("Генерация текста с внедрением ссылок..."):
                     facts_context = "\n".join([f"- [{f.get('category','')}] {f.get('claim','')} (Source: {f.get('source_url', '')})" for f in facts])
-                    links_context = "\n".join([f"- [{p.get('title','')}]({p.get('url','')})" for p in pages])
+                    links_context = "\n".join([f"- [{p.get('title','')}]({p.get('url','')})" for p in pages]) if pages else "Страницы перелинковки отсутствуют"
                     
                     gen_prompt = f"""
 Ты — профессиональный B2B SaaS SEO-копирайтер для {selected_product}.
@@ -314,6 +308,8 @@ with tab3:
     search_link_kw = st.text_input("Фрагмент текста или тема для подбора URL", value="Digital Asset Management for eCommerce")
     if st.button("Найти URL для перелинковки"):
         found_pages = retrieve_linking_pages(search_link_kw, selected_product, top_k=8, threshold=0.0)
+        if not found_pages:
+            st.info("Страницы перелинковки еще не загружены в таблицу site_pages.")
         for fp in found_pages:
             st.markdown(f"🔗 **[{fp.get('title','')}]({fp.get('url','')})** — `Score: {fp.get('similarity',0):.2f}`")
             st.caption(f"Markdown код: `[{fp.get('title','')}]({fp.get('url','')})`")
@@ -334,6 +330,8 @@ with tab4:
                 st.error(f"Слепая зона ({best_sc:.2f})! В базе нет фактов.")
             for af in audit_facts:
                 st.write(f"- {af.get('claim','')} *(Score: {af.get('similarity',0):.2f})*")
+        else:
+            st.error("Факты не найдены в базе.")
 
 # 5. ИСТОРИЯ
 with tab5:
