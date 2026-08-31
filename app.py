@@ -11,13 +11,16 @@ except Exception:
     pass
 
 def get_secret(key, default=""):
+    val = ""
     if hasattr(st, "secrets") and key in st.secrets:
-        return st.secrets[key]
-    return os.getenv(key, default)
+        val = str(st.secrets[key])
+    else:
+        val = str(os.getenv(key, default))
+    return val.strip().strip("'").strip('"')
 
-SUPABASE_URL = str(get_secret("SUPABASE_URL", "")).rstrip("/")
-SUPABASE_KEY = str(get_secret("SUPABASE_KEY", ""))
-GEMINI_API_KEY = str(get_secret("GEMINI_API_KEY", ""))
+SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY", "")
 
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
 auth_raw = get_secret("AUTH_USERS")
@@ -37,34 +40,67 @@ def get_supabase_headers():
         "Content-Type": "application/json"
     }
 
-def get_embedding(text: str):
+# Автоматический подбор доступных рабочих эндпоинтов Google API
+@st.cache_resource
+def get_working_models():
+    embed_endpoint = None
+    gen_endpoint = None
+    err_logs = []
+
     for ver in ["v1beta", "v1"]:
-        for model in ["embedding-001", "text-embedding-004"]:
-            url = f"https://generativelanguage.googleapis.com/{ver}/models/{model}:embedContent?key={GEMINI_API_KEY}"
-            payload = {"content": {"parts": [{"text": text}]}}
-            try:
-                res = requests.post(url, json=payload, timeout=8)
-                if res.status_code == 200:
-                    return res.json()["embedding"]["values"][:768]
-            except Exception:
-                continue
-    raise Exception("Не удалось получить вектор от Google API.")
+        try:
+            url = f"https://generativelanguage.googleapis.com/{ver}/models?key={GEMINI_API_KEY}"
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                models = res.json().get("models", [])
+                for m in models:
+                    m_name = m["name"].replace("models/", "")
+                    methods = m.get("supportedGenerationMethods", [])
+
+                    # Проверка модели эмбеддингов
+                    if not embed_endpoint and ("embedContent" in methods or "batchEmbedContents" in methods):
+                        test_url = f"https://generativelanguage.googleapis.com/{ver}/models/{m_name}:embedContent?key={GEMINI_API_KEY}"
+                        test_res = requests.post(test_url, json={"content": {"parts": [{"text": "test"}]}}, timeout=5)
+                        if test_res.status_code == 200:
+                            embed_endpoint = test_url
+
+                    # Проверка модели генерации текста
+                    if not gen_endpoint and "generateContent" in methods:
+                        test_url = f"https://generativelanguage.googleapis.com/{ver}/models/{m_name}:generateContent?key={GEMINI_API_KEY}"
+                        test_res = requests.post(test_url, json={"contents": [{"parts": [{"text": "hi"}]}]}, timeout=5)
+                        if test_res.status_code == 200:
+                            gen_endpoint = test_url
+            else:
+                err_logs.append(f"{ver}: {res.status_code} - {res.text}")
+        except Exception as e:
+            err_logs.append(str(e))
+
+    # Резервные прямые эндпоинты
+    if not embed_endpoint:
+        embed_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={GEMINI_API_KEY}"
+    if not gen_endpoint:
+        gen_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+
+    return embed_endpoint, gen_endpoint
+
+EMBED_ENDPOINT, GEN_ENDPOINT = get_working_models()
+
+def get_embedding(text: str):
+    payload = {"content": {"parts": [{"text": text}]}}
+    res = requests.post(EMBED_ENDPOINT, json=payload, timeout=10)
+    if res.status_code == 200:
+        return res.json()["embedding"]["values"][:768]
+    raise Exception(f"Google Embeddings Error ({res.status_code}): {res.text}")
 
 def generate_llm(prompt: str, temperature: float = 0.2):
-    for ver in ["v1beta", "v1"]:
-        for model in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]:
-            url = f"https://generativelanguage.googleapis.com/{ver}/models/{model}:generateContent?key={GEMINI_API_KEY}"
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": temperature}
-            }
-            try:
-                res = requests.post(url, json=payload, timeout=25)
-                if res.status_code == 200:
-                    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-            except Exception:
-                continue
-    raise Exception("Ошибка генерации через Gemini API.")
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": temperature}
+    }
+    res = requests.post(GEN_ENDPOINT, json=payload, timeout=25)
+    if res.status_code == 200:
+        return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+    raise Exception(f"Google LLM Error ({res.status_code}): {res.text}")
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
     vec = get_embedding(query)
@@ -75,12 +111,10 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         "match_count": top_k,
         "filter_product": product
     }
-    try:
-        res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
-        if res.status_code == 200:
-            return res.json()
-    except Exception:
-        pass
+    res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
+    if res.status_code == 200:
+        return res.json()
+    st.error(f"Supabase RPC Error: {res.text}")
     return []
 
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
@@ -92,12 +126,9 @@ def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: 
         "match_count": top_k,
         "filter_product": product
     }
-    try:
-        res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
-        if res.status_code == 200:
-            return res.json()
-    except Exception:
-        pass
+    res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
+    if res.status_code == 200:
+        return res.json()
     return []
 
 def save_generation_to_history(product, author, kw, content_type, text, verdict):
@@ -111,7 +142,7 @@ def save_generation_to_history(product, author, kw, content_type, text, verdict)
         "content_type": content_type,
         "generated_text": text,
         "doctor_verdict": verdict,
-        "status": "PASS" if "PASS" in verdict.upper() else "FAIL"
+        "status": "PASS" if "PASS" in str(verdict).upper() else "FAIL"
     }
     try:
         requests.post(url, headers=headers, json=payload, timeout=8)
@@ -128,7 +159,7 @@ def get_content_history(product: str):
         pass
     return []
 
-# --- UI ---
+# --- UI & AUTH ---
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯")
 
 if "authenticated" not in st.session_state:
