@@ -103,20 +103,23 @@ def resolve_models(api_key):
             if not embed_m and embed_cands:
                 embed_m = embed_cands[0]
 
-            # Подбор генератора
+            # Подбор генератора (с приоритетом на самые свежие версии)
             gen_m = None
-            for pref in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+            for pref in ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.0-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
                 for c in gen_cands:
                     if pref in c:
                         gen_m = c
                         break
                 if gen_m:
                     break
+            
+            # Фоллбек: если конкретные версии не найдены, берем любую актуальную flash-модель
             if not gen_m:
                 for c in gen_cands:
-                    if "1.5" in c or "2.0" in c:
+                    if "flash" in c:
                         gen_m = c
                         break
+
             if not gen_m and gen_cands:
                 gen_m = gen_cands[0]
 
