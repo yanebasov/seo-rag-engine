@@ -242,7 +242,7 @@ def get_content_history(product: str):
 
 st.title(f"🎯 SEO RAG Hub — {selected_product.upper()}")
 
-# --- ОБНОВЛЕННЫЕ ВКЛАДКИ ---
+# --- ВКЛАДКИ ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "✍️ Генерация + Доктор",
     "⚡ Batch",
@@ -401,7 +401,7 @@ with tab5:
     else:
         st.info("История пока пуста.")
 
-# 6. DATA MANAGER (НОВАЯ ВКЛАДКА)
+# 6. DATA MANAGER (УПРАВЛЕНИЕ БАЗОЙ И ПЛЕЙБУКАМИ)
 with tab6:
     st.subheader("⚙️ Управление базой знаний и мониторинг актуальности")
     
@@ -421,12 +421,19 @@ with tab6:
         if st.button("🔍 Спарсить Sitemap", type="primary"):
             with st.spinner("Чтение XML..."):
                 try:
-                    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
-                    r = requests.get(target_sitemap, headers=headers, timeout=15)
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'application/xml, text/xml, */*; q=0.01'
+                    }
+                    r = requests.get(target_sitemap, headers=headers, timeout=20)
                     r.raise_for_status()
                     
-                    xml_text = re.sub(r'\sxmlns="[^"]+"', '', r.text, count=1)
-                    root = ET.fromstring(xml_text)
+                    root = ET.fromstring(r.content)
+                    
+                    # Универсальная очистка XML-дерева от неймспейсов
+                    for elem in root.iter():
+                        if '}' in elem.tag:
+                            elem.tag = elem.tag.split('}', 1)[1]
                     
                     results = []
                     if root.tag == 'sitemapindex':
@@ -447,10 +454,10 @@ with tab6:
                         st.dataframe(df_sitemap, use_container_width=True)
                         st.info("💡 Следующий шаг архитектуры: Настроить крон-триггер, который берет свежие URL из этой таблицы, скрапит их HTML, разбивает на H2/H3 блоки, делает новые эмбеддинги и пушит в таблицу site_pages в Supabase.")
                     else:
-                        st.warning("Сайтмап пуст или имеет нестандартную структуру.")
+                        st.warning("Сайтмап распарсился, но ссылок (<loc>) внутри не найдено.")
                         
                 except Exception as e:
-                    st.error(f"Ошибка парсинга: {e}")
+                    st.error(f"Ошибка парсинга или недоступность сайта: {e}")
 
     with col_playbooks:
         st.markdown("#### 🚀 Плейбуки новых лендингов (Reverse Linking)")
