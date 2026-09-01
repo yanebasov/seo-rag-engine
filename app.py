@@ -411,24 +411,33 @@ with tab6:
         st.markdown("#### 🌐 Мониторинг Sitemap")
         st.caption("Парсинг сайтмапов для отслеживания новых лендингов и обновления старых страниц (по lastmod).")
         
-        target_sitemap = st.text_input("URL Sitemap для сканирования:", value="https://pics.io/sitemap.xml")
+        st.markdown("**💡 Быстрый парсинг (нажмите для запуска):**")
+        c1, c2 = st.columns(2)
+        btn_pics = c1.button("🚀 pics.io")
+        btn_bpics = c1.button("🚀 blog.pics.io")
+        btn_toriut = c2.button("🚀 toriut.com")
+        btn_btoriut = c2.button("🚀 blog.toriut.com")
         
-        st.caption(
-            "💡 **Быстрые ссылки (удобно копировать):**\n"
-            "- `https://pics.io/sitemap.xml`\n"
-            "- `https://blog.pics.io/sitemap.xml`\n"
-            "- `https://toriut.com/sitemap.xml`\n"
-            "- `https://blog.toriut.com/sitemap.xml`"
-        )
+        st.markdown("**Или введите вручную:**")
+        target_sitemap = st.text_input("URL Sitemap:", value="https://pics.io/sitemap.xml", label_visibility="collapsed")
+        btn_manual = st.button("🔍 Спарсить введенный", type="primary")
         
-        if st.button("🔍 Спарсить Sitemap", type="primary"):
-            with st.spinner("Чтение XML..."):
+        # Определяем, какой Sitemap парсить
+        active_sitemap = None
+        if btn_pics: active_sitemap = "https://pics.io/sitemap.xml"
+        elif btn_bpics: active_sitemap = "https://blog.pics.io/sitemap.xml"
+        elif btn_toriut: active_sitemap = "https://toriut.com/sitemap.xml"
+        elif btn_btoriut: active_sitemap = "https://blog.toriut.com/sitemap.xml"
+        elif btn_manual and target_sitemap: active_sitemap = target_sitemap.strip()
+        
+        if active_sitemap:
+            with st.spinner(f"Чтение {active_sitemap}..."):
                 try:
                     headers = {
                         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Accept': 'application/xml, text/xml, */*; q=0.01'
                     }
-                    r = requests.get(target_sitemap.strip(), headers=headers, timeout=20)
+                    r = requests.get(active_sitemap, headers=headers, timeout=20)
                     r.raise_for_status()
                     
                     root = ET.fromstring(r.content)
