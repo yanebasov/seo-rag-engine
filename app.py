@@ -152,8 +152,9 @@ def get_embedding(text: str):
         res = requests.post(url, json=payload, timeout=10)
         if res.status_code == 200:
             return res.json()["embedding"]["values"][:768]
+        st.error(f"Google Embeddings Error ({res.status_code}): {res.text}")
     except Exception as e:
-        pass
+        st.error(f"Ошибка получения вектора: {e}")
     return None
 
 def generate_llm(prompt: str, temperature: float = 0.2):
@@ -169,9 +170,12 @@ def generate_llm(prompt: str, temperature: float = 0.2):
         res = requests.post(url, json=payload, timeout=30)
         if res.status_code == 200:
             return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        
+        # Детальный вывод ошибки от Google
+        error_msg = res.json().get("error", {}).get("message", res.text)
+        return f"⚠️ Ошибка API Google ({res.status_code}): {error_msg}"
     except Exception as e:
-        pass
-    return "Не удалось сгенерировать текст."
+        return f"⚠️ Системная ошибка запроса: {e}"
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
     vec = get_embedding(query)
@@ -366,7 +370,7 @@ with tab3:
             st.markdown(f"🔗 **[{fp.get('title','')}]({fp.get('url','')})** — `Score: {fp.get('similarity',0):.2f}`")
             st.caption(f"Markdown код: `[{fp.get('title','')}]({fp.get('url','')})`")
 
-# 4. GAP AUDIT С ПРУФАМИ
+# 4. GAP AUDIT С ПРУФАМИ И РЕКОМЕНДАЦИЯМИ
 with tab4:
     st.subheader(f"📊 Аудит покрытия (Gap Audit) для {selected_product}")
     audit_kw = st.text_input("Проверить поисковый запрос на слепые зоны", value=f"Can {selected_product} integrate with HubSpot?")
@@ -404,10 +408,22 @@ with tab4:
                     Оцени, насколько найденная информация полно отвечает на запрос. 
                     Напиши короткий аудит-пруф по структуре:
                     1. **Вердикт:** Хватит ли этого для качественной статьи или будет "вода"?
-                    2. **Missing Info (Чего не хватает):** Напиши 2-3 конкретных тезиса/факта, которые нам нужно срочно задокументировать и загрузить в базу знаний, чтобы раскрыть эту тему на 100%.
+                    2. **Missing Info (Чего не хватает):** Напиши 2-3 конкретных тезиса/факта, которые нам нужно срочно задокументировать и загрузить в базу знаний.
                     """
                     proof_result = generate_llm(proof_prompt, temperature=0.3)
                     st.info(proof_result)
+                
+                # --- ПОИСК СТРАНИЦ ДЛЯ ДОРАБОТКИ ---
+                if best_sc < 0.65:
+                    st.markdown("#### 🛠 Где на сайте стоит дописать эту информацию:")
+                    with st.spinner("Поиск подходящих страниц для обновления..."):
+                        pages_to_update = retrieve_linking_pages(audit_kw, selected_product, top_k=3)
+                        if pages_to_update:
+                            for pu in pages_to_update:
+                                st.markdown(f"- [{pu.get('title', 'Без названия')}]({pu.get('url', '')}) *(Семантическая близость: {pu.get('similarity', 0):.2f})*")
+                            st.caption("☝️ Добавьте недостающие факты на одну из этих страниц, чтобы закрыть Gap-зону.")
+                        else:
+                            st.caption("Подходящих страниц не найдено. Похоже, под эту тему нужен абсолютно новый лендинг.")
             else:
                 st.error("Факты не найдены в базе вообще. Это абсолютная слепая зона, контента ноль.")
 
@@ -500,12 +516,23 @@ with tab6:
         
         new_url = st.text_input("URL новой страницы (опционально)", placeholder="https://pics.io/new-feature")
         new_keywords = st.text_input("Главные ключевые слова", placeholder="AI search, face recognition")
-        playbook_text = st.text_area("Текст плейбука / Описание", height=120, placeholder="Скопируйте сюда бриф фичи или черновик канваса...")
+        
+        st.markdown("**Текст плейбука / Описание**")
+        playbook_text = st.text_area("Текст плейбука / Описание", height=120, placeholder="Скопируйте сюда бриф фичи или черновик канваса...", label_visibility="collapsed")
+        
+        uploaded_playbook = st.file_uploader("Или загрузите текстовый файл (.txt, .md)", type=["txt", "md"])
         
         if st.button("🧠 Найти места для размещения ссылок", type="primary"):
-            if playbook_text:
+            # Склеиваем текст из окна и из файла (если файл загружен)
+            final_playbook_text = playbook_text.strip()
+            if uploaded_playbook is not None:
+                final_playbook_text += "\n\n" + uploaded_playbook.read().decode("utf-8")
+            
+            final_playbook_text = final_playbook_text.strip()
+
+            if final_playbook_text:
                 with st.spinner("Анализ плейбука и поиск релевантных страниц в базе..."):
-                    candidates = retrieve_linking_pages(playbook_text, selected_product, top_k=3, threshold=0.0)
+                    candidates = retrieve_linking_pages(final_playbook_text, selected_product, top_k=3, threshold=0.0)
                     
                     if candidates:
                         st.success(f"Найдено {len(candidates)} подходящих страниц для размещения!")
@@ -520,7 +547,7 @@ with tab6:
                                 inject_prompt = f"""
 Ты SEO-стратег для {selected_product}. Мы готовим новую страницу:
 Ключевые слова: {new_keywords}
-Суть страницы (Плейбук): {playbook_text}
+Суть страницы (Плейбук): {final_playbook_text}
 
 Мы хотим поставить на нее ссылку с нашей старой страницы:
 URL старой страницы: {c.get('url', '')}
@@ -536,4 +563,4 @@ URL старой страницы: {c.get('url', '')}
                     else:
                         st.warning("Не удалось найти релевантные страницы в базе. Возможно, тема слишком уникальна.")
             else:
-                st.error("Пожалуйста, добавьте хотя бы текст плейбука/брифа.")
+                st.error("Пожалуйста, добавьте текст плейбука/брифа вручную или загрузите файл.")
