@@ -79,6 +79,7 @@ with st.sidebar:
 CURRENT_KEY = gemini_key_input.strip().strip("'").strip('"')
 
 # Точный автодетект моделей
+@st.cache_data(ttl=3600, show_spinner=False)
 def resolve_models(api_key):
     if not api_key:
         return None, None, "Укажите Gemini API Key"
