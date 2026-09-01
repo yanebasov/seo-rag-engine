@@ -411,12 +411,15 @@ with tab6:
         st.markdown("#### 🌐 Мониторинг Sitemap")
         st.caption("Парсинг сайтмапов для отслеживания новых лендингов и обновления старых страниц (по lastmod).")
         
-        target_sitemap = st.selectbox("Выберите Sitemap для сканирования:", [
-            "https://pics.io/sitemap.xml",
-            "https://blog.pics.io/sitemap.xml",
-            "https://toriut.com/sitemap.xml",
-            "https://blog.toriut.com/sitemap.xml"
-        ])
+        target_sitemap = st.text_input("URL Sitemap для сканирования:", value="https://pics.io/sitemap.xml")
+        
+        st.caption(
+            "💡 **Быстрые ссылки (удобно копировать):**\n"
+            "- `https://pics.io/sitemap.xml`\n"
+            "- `https://blog.pics.io/sitemap.xml`\n"
+            "- `https://toriut.com/sitemap.xml`\n"
+            "- `https://blog.toriut.com/sitemap.xml`"
+        )
         
         if st.button("🔍 Спарсить Sitemap", type="primary"):
             with st.spinner("Чтение XML..."):
@@ -425,7 +428,7 @@ with tab6:
                         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Accept': 'application/xml, text/xml, */*; q=0.01'
                     }
-                    r = requests.get(target_sitemap, headers=headers, timeout=20)
+                    r = requests.get(target_sitemap.strip(), headers=headers, timeout=20)
                     r.raise_for_status()
                     
                     root = ET.fromstring(r.content)
