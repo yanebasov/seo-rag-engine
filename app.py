@@ -103,7 +103,7 @@ def resolve_models(api_key):
             if not embed_m and embed_cands:
                 embed_m = embed_cands[0]
 
-            # Подбор генератора (приоритет 2.0-flash / 1.5-flash)
+            # Подбор генератора
             gen_m = None
             for pref in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
                 for c in gen_cands:
@@ -152,9 +152,8 @@ def get_embedding(text: str):
         res = requests.post(url, json=payload, timeout=10)
         if res.status_code == 200:
             return res.json()["embedding"]["values"][:768]
-        st.error(f"Google Embeddings Error ({res.status_code}): {res.text}")
     except Exception as e:
-        st.error(f"Ошибка получения вектора: {e}")
+        pass
     return None
 
 def generate_llm(prompt: str, temperature: float = 0.2):
@@ -170,9 +169,8 @@ def generate_llm(prompt: str, temperature: float = 0.2):
         res = requests.post(url, json=payload, timeout=30)
         if res.status_code == 200:
             return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        st.error(f"Google LLM Error ({res.status_code}): {res.text}")
     except Exception as e:
-        st.error(f"Ошибка вызова LLM: {e}")
+        pass
     return "Не удалось сгенерировать текст."
 
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
@@ -368,24 +366,50 @@ with tab3:
             st.markdown(f"🔗 **[{fp.get('title','')}]({fp.get('url','')})** — `Score: {fp.get('similarity',0):.2f}`")
             st.caption(f"Markdown код: `[{fp.get('title','')}]({fp.get('url','')})`")
 
-# 4. GAP AUDIT
+# 4. GAP AUDIT С ПРУФАМИ
 with tab4:
-    st.subheader(f"📊 Аудит покрытия базы знаний для {selected_product}")
+    st.subheader(f"📊 Аудит покрытия (Gap Audit) для {selected_product}")
     audit_kw = st.text_input("Проверить поисковый запрос на слепые зоны", value=f"Can {selected_product} integrate with HubSpot?")
-    if st.button("Провести аудит"):
-        audit_facts = retrieve_facts(audit_kw, selected_product, top_k=3, threshold=0.0)
-        if audit_facts:
-            best_sc = audit_facts[0].get("similarity", 0)
-            if best_sc > 0.65:
-                st.success(f"Отличное покрытие! Score: {best_sc:.2f}")
-            elif best_sc > 0.45:
-                st.warning(f"Среднее покрытие ({best_sc:.2f}). Рекомендуется добавить точный факт.")
+    
+    if st.button("🔍 Провести аудит", type="primary"):
+        with st.spinner("Анализ векторной базы..."):
+            audit_facts = retrieve_facts(audit_kw, selected_product, top_k=3, threshold=0.0)
+            
+            if audit_facts:
+                best_sc = audit_facts[0].get("similarity", 0)
+                if best_sc > 0.65:
+                    st.success(f"🟢 Отличное покрытие! Score: {best_sc:.2f}")
+                elif best_sc > 0.45:
+                    st.warning(f"🟡 Среднее покрытие ({best_sc:.2f}). Факты слишком общие.")
+                else:
+                    st.error(f"🔴 Слепая зона ({best_sc:.2f})! Прямых фактов нет.")
+                
+                st.markdown("**Найденные факты в базе:**")
+                facts_text = ""
+                for af in audit_facts:
+                    st.write(f"- {af.get('claim','')} *(Score: {af.get('similarity',0):.2f})*")
+                    facts_text += f"- {af.get('claim','')}\n"
+                
+                # --- ГЕНЕРАЦИЯ ПРУФОВ ОТ LLM ---
+                st.divider()
+                st.markdown("#### 🕵️ Пруфы аудита (Анализ от AI-стратега)")
+                with st.spinner("LLM анализирует нехватку данных..."):
+                    proof_prompt = f"""
+                    Ты контент-стратег для {selected_product}.
+                    Наш SEO-специалист хочет написать статью под запрос: "{audit_kw}".
+                    
+                    В нашей базе знаний мы нашли только эти фрагменты:
+                    {facts_text}
+                    
+                    Оцени, насколько найденная информация полно отвечает на запрос. 
+                    Напиши короткий аудит-пруф по структуре:
+                    1. **Вердикт:** Хватит ли этого для качественной статьи или будет "вода"?
+                    2. **Missing Info (Чего не хватает):** Напиши 2-3 конкретных тезиса/факта, которые нам нужно срочно задокументировать и загрузить в базу знаний, чтобы раскрыть эту тему на 100%.
+                    """
+                    proof_result = generate_llm(proof_prompt, temperature=0.3)
+                    st.info(proof_result)
             else:
-                st.error(f"Слепая зона ({best_sc:.2f})! В базе нет фактов.")
-            for af in audit_facts:
-                st.write(f"- {af.get('claim','')} *(Score: {af.get('similarity',0):.2f})*")
-        else:
-            st.error("Факты не найдены в базе.")
+                st.error("Факты не найдены в базе вообще. Это абсолютная слепая зона, контента ноль.")
 
 # 5. ИСТОРИЯ
 with tab5:
@@ -423,7 +447,6 @@ with tab6:
         target_sitemap = st.text_input("URL Sitemap:", value="https://pics.io/sitemap.xml", label_visibility="collapsed")
         btn_manual = st.button("🔍 Спарсить введенный", type="primary")
         
-        # Определяем, какой Sitemap парсить
         active_sitemap = None
         if btn_pics: active_sitemap = "https://pics.io/sitemap.xml"
         elif btn_bpics: active_sitemap = "https://blog.pics.io/sitemap.xml"
@@ -443,7 +466,6 @@ with tab6:
                     
                     root = ET.fromstring(r.content)
                     
-                    # Универсальная очистка XML-дерева от неймспейсов
                     for elem in root.iter():
                         if '}' in elem.tag:
                             elem.tag = elem.tag.split('}', 1)[1]
@@ -474,14 +496,14 @@ with tab6:
 
     with col_playbooks:
         st.markdown("#### 🚀 Плейбуки новых лендингов (Reverse Linking)")
-        st.caption("Загрузите бриф новой страницы, чтобы система нашла места на старых страницах сайта, куда можно органично вписать ссылку на нее.")
+        st.caption("Загрузите бриф новой страницы (даже если она еще не опубликована), чтобы система нашла места для перелинковки на старых страницах.")
         
-        new_url = st.text_input("URL новой страницы", placeholder="https://pics.io/new-feature")
+        new_url = st.text_input("URL новой страницы (опционально)", placeholder="https://pics.io/new-feature")
         new_keywords = st.text_input("Главные ключевые слова", placeholder="AI search, face recognition")
-        playbook_text = st.text_area("Текст плейбука / Описание лендинга", height=120, placeholder="Скопируйте сюда бриф фичи, зачем она нужна и какую проблему решает...")
+        playbook_text = st.text_area("Текст плейбука / Описание", height=120, placeholder="Скопируйте сюда бриф фичи или черновик канваса...")
         
         if st.button("🧠 Найти места для размещения ссылок", type="primary"):
-            if playbook_text and new_url:
+            if playbook_text:
                 with st.spinner("Анализ плейбука и поиск релевантных страниц в базе..."):
                     candidates = retrieve_linking_pages(playbook_text, selected_product, top_k=3, threshold=0.0)
                     
@@ -490,11 +512,13 @@ with tab6:
                         
                         for c in candidates:
                             with st.expander(f"🔗 Размещение на: {c.get('title', 'Без названия')} (Score: {c.get('similarity', 0):.2f})", expanded=True):
-                                st.markdown(f"**URL:** {c.get('url', '')}")
+                                st.markdown(f"**Внутренняя страница:** {c.get('url', '')}")
+                                
+                                # Если URL не указан, ставим заглушку
+                                target_link = new_url.strip() if new_url.strip() else "[URL_БУДЕТ_ЗДЕСЬ]"
                                 
                                 inject_prompt = f"""
-Ты SEO-стратег для {selected_product}. Мы выпустили новую страницу:
-URL: {new_url}
+Ты SEO-стратег для {selected_product}. Мы готовим новую страницу:
 Ключевые слова: {new_keywords}
 Суть страницы (Плейбук): {playbook_text}
 
@@ -503,8 +527,8 @@ URL старой страницы: {c.get('url', '')}
 Тема старой страницы: {c.get('title', '')}
 
 ЗАДАЧА:
-Напиши 1-2 органичных предложения, которые мы можем ДОПИСАТЬ на старую страницу, чтобы логично сослаться на новую. 
-Используй Markdown для ссылки: [Анкор]({new_url}). Анкор должен быть естественным и релевантным ключевым словам.
+Напиши 1-2 органичных предложения, которые мы можем ДОПИСАТЬ на старую страницу, чтобы сослаться на новую фичу. 
+Используй Markdown для ссылки: [Анкор]({target_link}). Анкор должен быть естественным и органично вписанным в контекст.
 """
                                 recommendation = generate_llm(inject_prompt, temperature=0.3)
                                 st.info("**Рекомендация по добавлению текста:**")
@@ -512,4 +536,4 @@ URL старой страницы: {c.get('url', '')}
                     else:
                         st.warning("Не удалось найти релевантные страницы в базе. Возможно, тема слишком уникальна.")
             else:
-                st.error("Укажите URL новой страницы и текст плейбука.")
+                st.error("Пожалуйста, добавьте хотя бы текст плейбука/брифа.")
