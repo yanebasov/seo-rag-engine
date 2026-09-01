@@ -103,7 +103,7 @@ def resolve_models(api_key):
             if not embed_m and embed_cands:
                 embed_m = embed_cands[0]
 
-            # Подбор генератора (с приоритетом на самые свежие версии)
+            # Подбор генератора
             gen_m = None
             for pref in ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.0-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
                 for c in gen_cands:
@@ -112,14 +112,11 @@ def resolve_models(api_key):
                         break
                 if gen_m:
                     break
-            
-            # Фоллбек: если конкретные версии не найдены, берем любую актуальную flash-модель
             if not gen_m:
                 for c in gen_cands:
                     if "flash" in c:
                         gen_m = c
                         break
-
             if not gen_m and gen_cands:
                 gen_m = gen_cands[0]
 
@@ -173,8 +170,6 @@ def generate_llm(prompt: str, temperature: float = 0.2):
         res = requests.post(url, json=payload, timeout=30)
         if res.status_code == 200:
             return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        
-        # Детальный вывод ошибки от Google
         error_msg = res.json().get("error", {}).get("message", res.text)
         return f"⚠️ Ошибка API Google ({res.status_code}): {error_msg}"
     except Exception as e:
@@ -379,8 +374,9 @@ with tab4:
     audit_kw = st.text_input("Проверить поисковый запрос на слепые зоны", value=f"Can {selected_product} integrate with HubSpot?")
     
     if st.button("🔍 Провести аудит", type="primary"):
-        with st.spinner("Анализ векторной базы..."):
+        with st.spinner("Анализ векторной базы и структуры сайта..."):
             audit_facts = retrieve_facts(audit_kw, selected_product, top_k=3, threshold=0.0)
+            pages_to_update = retrieve_linking_pages(audit_kw, selected_product, top_k=4)
             
             if audit_facts:
                 best_sc = audit_facts[0].get("similarity", 0)
@@ -396,37 +392,36 @@ with tab4:
                 for af in audit_facts:
                     st.write(f"- {af.get('claim','')} *(Score: {af.get('similarity',0):.2f})*")
                     facts_text += f"- {af.get('claim','')}\n"
+
+                pages_text = ""
+                if pages_to_update:
+                    for pu in pages_to_update:
+                        pages_text += f"- [{pu.get('title', 'Без названия')}]({pu.get('url', '')})\n"
+                else:
+                    pages_text = "Подходящих страниц не найдено."
                 
-                # --- ГЕНЕРАЦИЯ ПРУФОВ ОТ LLM ---
+                # --- ГЕНЕРАЦИЯ ПРУФОВ ОТ LLM С УЧЕТОМ СТРАНИЦ ---
                 st.divider()
                 st.markdown("#### 🕵️ Пруфы аудита (Анализ от AI-стратега)")
-                with st.spinner("LLM анализирует нехватку данных..."):
+                with st.spinner("LLM анализирует нехватку данных и подбирает страницы для апдейта..."):
                     proof_prompt = f"""
                     Ты контент-стратег для {selected_product}.
                     Наш SEO-специалист хочет написать статью под запрос: "{audit_kw}".
                     
                     В нашей базе знаний мы нашли только эти фрагменты:
                     {facts_text}
+
+                    Вот релевантные страницы на нашем сайте по этой теме:
+                    {pages_text}
                     
                     Оцени, насколько найденная информация полно отвечает на запрос. 
-                    Напиши короткий аудит-пруф по структуре:
+                    Напиши аудит-пруф по структуре:
                     1. **Вердикт:** Хватит ли этого для качественной статьи или будет "вода"?
-                    2. **Missing Info (Чего не хватает):** Напиши 2-3 конкретных тезиса/факта, которые нам нужно срочно задокументировать и загрузить в базу знаний.
+                    2. **Missing Info (Чего не хватает):** Напиши 2-3 конкретных тезиса/факта, которые нам нужно срочно задокументировать.
+                    3. **Где актуализировать инфу:** Посоветуй, на каких из приведенных страниц лучше всего добавить эту недостающую информацию (выбери 1-2 из списка выше, укажи URL и почему именно там). Если страниц нет, посоветуй создать новый лендинг.
                     """
                     proof_result = generate_llm(proof_prompt, temperature=0.3)
                     st.info(proof_result)
-                
-                # --- ПОИСК СТРАНИЦ ДЛЯ ДОРАБОТКИ ---
-                if best_sc < 0.65:
-                    st.markdown("#### 🛠 Где на сайте стоит дописать эту информацию:")
-                    with st.spinner("Поиск подходящих страниц для обновления..."):
-                        pages_to_update = retrieve_linking_pages(audit_kw, selected_product, top_k=3)
-                        if pages_to_update:
-                            for pu in pages_to_update:
-                                st.markdown(f"- [{pu.get('title', 'Без названия')}]({pu.get('url', '')}) *(Семантическая близость: {pu.get('similarity', 0):.2f})*")
-                            st.caption("☝️ Добавьте недостающие факты на одну из этих страниц, чтобы закрыть Gap-зону.")
-                        else:
-                            st.caption("Подходящих страниц не найдено. Похоже, под эту тему нужен абсолютно новый лендинг.")
             else:
                 st.error("Факты не найдены в базе вообще. Это абсолютная слепая зона, контента ноль.")
 
@@ -526,7 +521,6 @@ with tab6:
         uploaded_playbook = st.file_uploader("Или загрузите текстовый файл (.txt, .md)", type=["txt", "md"])
         
         if st.button("🧠 Найти места для размещения ссылок", type="primary"):
-            # Склеиваем текст из окна и из файла (если файл загружен)
             final_playbook_text = playbook_text.strip()
             if uploaded_playbook is not None:
                 final_playbook_text += "\n\n" + uploaded_playbook.read().decode("utf-8")
@@ -544,7 +538,6 @@ with tab6:
                             with st.expander(f"🔗 Размещение на: {c.get('title', 'Без названия')} (Score: {c.get('similarity', 0):.2f})", expanded=True):
                                 st.markdown(f"**Внутренняя страница:** {c.get('url', '')}")
                                 
-                                # Если URL не указан, ставим заглушку
                                 target_link = new_url.strip() if new_url.strip() else "[URL_БУДЕТ_ЗДЕСЬ]"
                                 
                                 inject_prompt = f"""
