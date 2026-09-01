@@ -1,5 +1,7 @@
 import os
 import json
+import re
+import xml.etree.ElementTree as ET
 import streamlit as st
 import pandas as pd
 import requests
@@ -100,9 +102,9 @@ def resolve_models(api_key):
             if not embed_m and embed_cands:
                 embed_m = embed_cands[0]
 
-            # Подбор генератора (приоритет 1.5-flash / 2.0-flash, исключая legacy)
+            # Подбор генератора (приоритет 2.0-flash / 1.5-flash)
             gen_m = None
-            for pref in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-flash"]:
+            for pref in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
                 for c in gen_cands:
                     if pref in c:
                         gen_m = c
@@ -119,7 +121,7 @@ def resolve_models(api_key):
 
             return embed_m or "models/text-embedding-004", gen_m or "models/gemini-1.5-flash", "OK"
         else:
-            return None, None, f"Код ошибки: {res.status_code} ({res.text})"
+            return None, None, f"Код ошибки: {res.status_code}"
     except Exception as e:
         return "models/text-embedding-004", "models/gemini-1.5-flash", f"Fallback: {e}"
 
@@ -187,9 +189,8 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         res = requests.post(url, headers=get_supabase_headers(), json=payload, timeout=10)
         if res.status_code == 200:
             return res.json()
-        st.error(f"Supabase RPC Error: {res.status_code} - {res.text}")
-    except Exception as e:
-        st.error(f"Ошибка базы данных: {e}")
+    except Exception:
+        pass
     return []
 
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
@@ -241,12 +242,14 @@ def get_content_history(product: str):
 
 st.title(f"🎯 SEO RAG Hub — {selected_product.upper()}")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "✍️ Генерация + Перелинковка + Доктор",
-    "⚡ Пакетная генерация (Batch)",
-    "🔗 Векторный линк-билдер",
-    "📊 Gap Audit (Покрытие)",
-    "📜 История генераций"
+# --- ОБНОВЛЕННЫЕ ВКЛАДКИ ---
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "✍️ Генерация + Доктор",
+    "⚡ Batch",
+    "🔗 Линк-билдер",
+    "📊 Gap Audit",
+    "📜 История",
+    "⚙️ Data Manager"
 ])
 
 # 1. ГЕНЕРАЦИЯ
@@ -397,3 +400,96 @@ with tab5:
         st.info(f"**Вердикт Доктора:** {row.get('doctor_verdict','')}")
     else:
         st.info("История пока пуста.")
+
+# 6. DATA MANAGER (НОВАЯ ВКЛАДКА)
+with tab6:
+    st.subheader("⚙️ Управление базой знаний и мониторинг актуальности")
+    
+    col_maps, col_playbooks = st.columns([1, 1])
+    
+    with col_maps:
+        st.markdown("#### 🌐 Мониторинг Sitemap")
+        st.caption("Парсинг сайтмапов для отслеживания новых лендингов и обновления старых страниц (по lastmod).")
+        
+        target_sitemap = st.selectbox("Выберите Sitemap для сканирования:", [
+            "https://pics.io/sitemap.xml",
+            "https://blog.pics.io/sitemap.xml",
+            "https://toriut.com/sitemap.xml",
+            "https://blog.toriut.com/sitemap.xml"
+        ])
+        
+        if st.button("🔍 Спарсить Sitemap", type="primary"):
+            with st.spinner("Чтение XML..."):
+                try:
+                    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'}
+                    r = requests.get(target_sitemap, headers=headers, timeout=15)
+                    r.raise_for_status()
+                    
+                    xml_text = re.sub(r'\sxmlns="[^"]+"', '', r.text, count=1)
+                    root = ET.fromstring(xml_text)
+                    
+                    results = []
+                    if root.tag == 'sitemapindex':
+                        for s in root.findall('sitemap'):
+                            loc = s.findtext('loc', default='-')
+                            lm = s.findtext('lastmod', default='-')
+                            results.append({"Тип": "Индекс", "URL": loc, "Последнее обновление": lm})
+                    elif root.tag == 'urlset':
+                        for u in root.findall('url'):
+                            loc = u.findtext('loc', default='-')
+                            lm = u.findtext('lastmod', default='-')
+                            results.append({"Тип": "Страница", "URL": loc, "Последнее обновление": lm})
+                    
+                    if results:
+                        df_sitemap = pd.DataFrame(results)
+                        df_sitemap = df_sitemap.sort_values(by="Последнее обновление", ascending=False)
+                        st.success(f"Найдено ссылок: {len(results)}")
+                        st.dataframe(df_sitemap, use_container_width=True)
+                        st.info("💡 Следующий шаг архитектуры: Настроить крон-триггер, который берет свежие URL из этой таблицы, скрапит их HTML, разбивает на H2/H3 блоки, делает новые эмбеддинги и пушит в таблицу site_pages в Supabase.")
+                    else:
+                        st.warning("Сайтмап пуст или имеет нестандартную структуру.")
+                        
+                except Exception as e:
+                    st.error(f"Ошибка парсинга: {e}")
+
+    with col_playbooks:
+        st.markdown("#### 🚀 Плейбуки новых лендингов (Reverse Linking)")
+        st.caption("Загрузите бриф новой страницы, чтобы система нашла места на старых страницах сайта, куда можно органично вписать ссылку на нее.")
+        
+        new_url = st.text_input("URL новой страницы", placeholder="https://pics.io/new-feature")
+        new_keywords = st.text_input("Главные ключевые слова", placeholder="AI search, face recognition")
+        playbook_text = st.text_area("Текст плейбука / Описание лендинга", height=120, placeholder="Скопируйте сюда бриф фичи, зачем она нужна и какую проблему решает...")
+        
+        if st.button("🧠 Найти места для размещения ссылок", type="primary"):
+            if playbook_text and new_url:
+                with st.spinner("Анализ плейбука и поиск релевантных страниц в базе..."):
+                    candidates = retrieve_linking_pages(playbook_text, selected_product, top_k=3, threshold=0.0)
+                    
+                    if candidates:
+                        st.success(f"Найдено {len(candidates)} подходящих страниц для размещения!")
+                        
+                        for c in candidates:
+                            with st.expander(f"🔗 Размещение на: {c.get('title', 'Без названия')} (Score: {c.get('similarity', 0):.2f})", expanded=True):
+                                st.markdown(f"**URL:** {c.get('url', '')}")
+                                
+                                inject_prompt = f"""
+Ты SEO-стратег для {selected_product}. Мы выпустили новую страницу:
+URL: {new_url}
+Ключевые слова: {new_keywords}
+Суть страницы (Плейбук): {playbook_text}
+
+Мы хотим поставить на нее ссылку с нашей старой страницы:
+URL старой страницы: {c.get('url', '')}
+Тема старой страницы: {c.get('title', '')}
+
+ЗАДАЧА:
+Напиши 1-2 органичных предложения, которые мы можем ДОПИСАТЬ на старую страницу, чтобы логично сослаться на новую. 
+Используй Markdown для ссылки: [Анкор]({new_url}). Анкор должен быть естественным и релевантным ключевым словам.
+"""
+                                recommendation = generate_llm(inject_prompt, temperature=0.3)
+                                st.info("**Рекомендация по добавлению текста:**")
+                                st.markdown(recommendation)
+                    else:
+                        st.warning("Не удалось найти релевантные страницы в базе. Возможно, тема слишком уникальна.")
+            else:
+                st.error("Укажите URL новой страницы и текст плейбука.")
