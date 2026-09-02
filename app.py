@@ -39,66 +39,57 @@ if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
 
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯", initial_sidebar_state="expanded")
 
-# --- CUSTOM CSS (Brand Dark Mode & SaaS UI) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* Принудительный темный фон */
-    .stApp, [data-testid="stHeader"] { background-color: #0E1117 !important; color: #FAFAFA !important; }
-    [data-testid="stSidebar"] { background-color: #161A22 !important; }
+    /* Прячем кружочки у радио-кнопок */
+    [data-testid="stRadio"] div[role="radiogroup"] > label > div:first-of-type { display: none !important; }
     
-    /* ИДЕАЛЬНОЕ МЕНЮ: Прячем стандартные кружочки радио-кнопок */
-    [data-testid="stRadio"] div[role="radiogroup"] > label > div:first-of-type {
-        display: none !important;
-    }
-    
-    /* Стилизация самих пунктов меню */
+    /* Стилизация пунктов меню */
     [data-testid="stRadio"] div[role="radiogroup"] > label {
-        background-color: transparent !important;
-        padding: 10px 15px !important;
-        border-radius: 8px !important;
-        cursor: pointer !important;
-        color: #E2E8F0 !important;
-        transition: all 0.2s ease !important;
-        border: 1px solid transparent !important;
-        margin-bottom: 4px !important;
+        background-color: transparent !important; padding: 10px 15px !important; border-radius: 8px !important;
+        cursor: pointer !important; transition: all 0.2s ease !important; border: 1px solid transparent !important; margin-bottom: 4px !important;
     }
+    
+    /* Текст пунктов меню */
+    [data-testid="stRadio"] div[role="radiogroup"] > label p { color: #FAFAFA !important; font-size: 15px !important; }
     
     /* Ховер эффект для меню */
     [data-testid="stRadio"] div[role="radiogroup"] > label:hover {
-        background-color: #2C313C !important;
-        border: 1px solid #4A5568 !important;
+        background-color: rgba(255, 255, 255, 0.05) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important;
     }
     
-    /* Активный пункт меню (подсветка желтым) */
+    /* Активный пункт меню */
     [data-testid="stRadio"] div[role="radiogroup"] > label[data-checked="true"],
     [data-testid="stRadio"] div[role="radiogroup"] > label[aria-checked="true"] {
-        background-color: #FFC107 !important;
-        border: 1px solid #E0A800 !important;
+        background-color: #FFC107 !important; border: 1px solid #E0A800 !important;
     }
     
-    /* Текст активного пункта черным */
+    /* Текст активного пункта */
     [data-testid="stRadio"] div[role="radiogroup"] > label[data-checked="true"] p,
     [data-testid="stRadio"] div[role="radiogroup"] > label[aria-checked="true"] p {
-        color: #000000 !important;
-        font-weight: 700 !important;
+        color: #000000 !important; font-weight: 700 !important;
     }
     
-    /* Фирменные желтые кнопки (Primary) */
+    /* Фирменные желтые кнопки */
     .stButton > button[kind="primary"] {
         background-color: #FFC107 !important; color: #000000 !important; border: none !important; font-weight: 700 !important; border-radius: 6px !important; transition: all 0.2s ease;
     }
     .stButton > button[kind="primary"]:hover {
-        background-color: #E0A800 !important; transform: translateY(-1px);
+        background-color: #E0A800 !important; transform: translateY(-1px); color: #000000 !important;
     }
     
     /* Цветные бейджи */
     .badge-green { background-color: #1E3E23; color: #68D391; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid #276749; }
     .badge-yellow { background-color: #4A3500; color: #F6AD55; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid #7B341E; }
     .badge-red { background-color: #4A1C1A; color: #FC8181; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid #9B2C2C; }
-    .badge-neutral { background-color: #2C313C; color: #A0AEC0; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; }
+    .badge-neutral { background-color: rgba(255, 255, 255, 0.1); color: #A0AEC0; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; }
     
-    h1, h2, h3, h4 { color: #FFFFFF !important; font-weight: 600 !important; }
-    [data-testid="stVerticalBlockBorderWrapper"] { border-color: #333333 !important; }
+    /* Оформляем логотипы как аккуратные иконки приложений */
+    [data-testid="stSidebar"] [data-testid="stImage"] img {
+        border-radius: 16px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -131,21 +122,33 @@ if not st.session_state["authenticated"]:
 
 # --- САЙДБАР ---
 with st.sidebar:
+    st.write("") # Отступ сверху
+    
+    # Чтобы узнать выбранный продукт ДО отрисовки селекта, инициализируем его в session_state, если нет
+    if "selected_product" not in st.session_state:
+        st.session_state.selected_product = "pics.io"
+        
+    # Аккуратный вывод логотипа по центру
+    c1, c2, c3 = st.columns([1, 1.5, 1])
+    with c2:
+        try:
+            if st.session_state.selected_product == "pics.io":
+                st.image("picsio_logo.jpeg", use_container_width=True)
+            else:
+                st.image("toriut_logo.jpeg", use_container_width=True)
+        except Exception:
+            pass
+            
+    st.write("") 
+    
+    # Селектор продукта
     selected_product = st.selectbox(
         "Продукт",
         options=["pics.io", "toriut"],
         format_func=lambda x: "Pics.io (DAM)" if x == "pics.io" else "Toriut (PIM)",
+        key="selected_product",
         label_visibility="collapsed"
     )
-    
-    st.write("") # Небольшой отступ
-    try:
-        if selected_product == "pics.io":
-            st.image("picsio_logo.jpeg", use_container_width=True)
-        else:
-            st.image("toriut_logo.jpeg", use_container_width=True)
-    except Exception:
-        st.caption("*(Логотипы не найдены в корне)*")
         
     st.divider()
 
@@ -214,7 +217,7 @@ EMBED_MODEL, GEN_MODEL, KEY_STATUS = resolve_models(CURRENT_KEY)
 with st.sidebar:
     if KEY_STATUS == "OK":
         st.markdown(f"""
-        <div style='background-color: #2C313C; padding: 10px; border-radius: 8px; border: 1px solid #4A5568; font-size: 0.85em; color: #E2E8F0;'>
+        <div style='background-color: rgba(255, 255, 255, 0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); font-size: 0.85em; color: #E2E8F0;'>
             <span style='color: #68D391;'>●</span> <b>Connected</b><br>
             <span style='color: #A0AEC0;'>Search:</span> {EMBED_MODEL.replace('models/', '')}<br>
             <span style='color: #A0AEC0;'>Gen:</span> {GEN_MODEL.replace('models/', '')}
