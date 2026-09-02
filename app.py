@@ -39,55 +39,40 @@ if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
 
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯", initial_sidebar_state="expanded")
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (SaaS Navigation & Branding) ---
 st.markdown("""
 <style>
-    /* Полностью скрываем стандартный кружок радио-кнопки */
-    [data-baseweb="radio"] > div:first-child {
-        display: none !important;
+    /* Выравниваем текст всех кнопок в сайдбаре по левому краю (под меню) */
+    [data-testid="stSidebar"] .stButton > button {
+        justify-content: flex-start !important;
+        padding-left: 15px !important;
     }
     
-    /* Превращаем строку меню в красивую кнопку */
-    [data-baseweb="radio"] {
-        background-color: transparent !important;
-        padding: 10px 15px !important;
-        border-radius: 8px !important;
-        cursor: pointer !important;
-        transition: all 0.2s ease !important;
-        margin-bottom: 5px !important;
-        width: 100% !important;
-    }
-    
-    /* Ховер-эффект для неактивных кнопок */
-    [data-baseweb="radio"]:hover {
-        background-color: rgba(255, 255, 255, 0.08) !important;
-    }
-    
-    /* Текст неактивной кнопки */
-    [data-baseweb="radio"] p {
-        color: #E2E8F0 !important;
-        font-size: 15px !important;
-        margin: 0 !important;
-    }
-    
-    /* АКТИВНАЯ КНОПКА (Где мы сейчас находимся) */
-    [data-baseweb="radio"][aria-checked="true"] {
-        background-color: #FFC107 !important;
-        box-shadow: 0 4px 10px rgba(255, 193, 7, 0.15) !important;
-    }
-    
-    /* Текст активной кнопки (черный и жирный) */
-    [data-baseweb="radio"][aria-checked="true"] p {
-        color: #000000 !important;
-        font-weight: 800 !important;
-    }
-    
-    /* Фирменные желтые кнопки (Primary) */
+    /* Фирменные желтые кнопки (Primary) - Активный пункт меню и главные экшены */
     .stButton > button[kind="primary"] {
-        background-color: #FFC107 !important; color: #000000 !important; border: none !important; font-weight: 700 !important; border-radius: 6px !important; transition: all 0.2s ease;
+        background-color: #FFC107 !important; 
+        color: #000000 !important; 
+        border: none !important; 
+        font-weight: 700 !important; 
+        border-radius: 8px !important; 
+        transition: all 0.2s ease;
     }
     .stButton > button[kind="primary"]:hover {
-        background-color: #E0A800 !important; transform: translateY(-1px); color: #000000 !important;
+        background-color: #E0A800 !important; 
+        transform: translateY(-1px); 
+    }
+    
+    /* Вторичные кнопки в сайдбаре (Неактивные пункты меню) */
+    [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+        background-color: transparent !important; 
+        color: #E2E8F0 !important; 
+        border: 1px solid transparent !important; 
+        font-weight: 500 !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
+        background-color: rgba(255, 255, 255, 0.05) !important; 
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
     }
     
     /* Цветные бейджи */
@@ -96,7 +81,7 @@ st.markdown("""
     .badge-red { background-color: #4A1C1A; color: #FC8181; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid #9B2C2C; }
     .badge-neutral { background-color: rgba(255, 255, 255, 0.1); color: #A0AEC0; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; }
     
-    /* Оформляем логотипы как аккуратные иконки */
+    /* Скругляем логотипы */
     [data-testid="stSidebar"] [data-testid="stImage"] img {
         border-radius: 16px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
@@ -133,7 +118,7 @@ if not st.session_state["authenticated"]:
 
 # --- САЙДБАР ---
 with st.sidebar:
-    st.write("") # Отступ сверху
+    st.write("") 
     
     if "selected_product" not in st.session_state:
         st.session_state.selected_product = "pics.io"
@@ -167,20 +152,27 @@ with st.sidebar:
         st.rerun()
     
     st.write("")
-    st.markdown("<p style='color:#A0AEC0; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:0px;'>MODULES</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#A0AEC0; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:10px;'>MODULES</p>", unsafe_allow_html=True)
     
-    menu = st.radio(
-        "Навигация",
-        options=[
-            "✍️ Генерация + Доктор",
-            "📊 Gap Audit",
-            "⚙️ Data Manager",
-            "🔗 Линк-билдер",
-            "⚡ Batch Processing",
-            "📜 История"
-        ],
-        label_visibility="collapsed"
-    )
+    # --- НАТИВНАЯ КНОПОЧНАЯ НАВИГАЦИЯ ---
+    menu_items = [
+        "✍️ Генерация + Доктор",
+        "📊 Gap Audit",
+        "⚙️ Data Manager",
+        "🔗 Линк-билдер",
+        "⚡ Batch Processing",
+        "📜 История"
+    ]
+    
+    if "active_tab" not in st.session_state:
+        st.session_state.active_tab = menu_items[0]
+        
+    for item in menu_items:
+        # Если пункт активный — кнопка желтая (primary), если нет — темная (secondary)
+        btn_type = "primary" if st.session_state.active_tab == item else "secondary"
+        if st.button(item, key=f"nav_{item}", use_container_width=True, type=btn_type):
+            st.session_state.active_tab = item
+            st.rerun()
     
     st.divider()
     
@@ -236,6 +228,7 @@ with st.sidebar:
 
 # --- API ФУНКЦИИ ---
 def get_supabase_headers(): return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
+
 def get_embedding(text: str):
     if not CURRENT_KEY or not EMBED_MODEL: return None
     try:
@@ -243,6 +236,7 @@ def get_embedding(text: str):
         if res.status_code == 200: return res.json()["embedding"]["values"][:768]
     except: pass
     return None
+
 def generate_llm(prompt: str, temperature: float = 0.2):
     if not CURRENT_KEY or not GEN_MODEL: return "Ошибка: API Key."
     try:
@@ -250,6 +244,7 @@ def generate_llm(prompt: str, temperature: float = 0.2):
         if res.status_code == 200: return res.json()["candidates"][0]["content"]["parts"][0]["text"]
         return f"⚠️ Ошибка ({res.status_code}): {res.json().get('error', {}).get('message', '')}"
     except Exception as e: return f"⚠️ Ошибка: {e}"
+
 def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 0.0):
     vec = get_embedding(query)
     if not vec: return []
@@ -258,6 +253,7 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
         if res.status_code == 200: return res.json()
     except: pass
     return []
+
 def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: float = 0.0):
     vec = get_embedding(query)
     if not vec: return []
@@ -266,9 +262,29 @@ def retrieve_linking_pages(query: str, product: str, top_k: int = 4, threshold: 
         if res.status_code == 200: return res.json()
     except: pass
     return []
+
 def save_generation_to_history(product, author, kw, content_type, text, verdict):
-    try: requests.post(f"{SUPABASE_URL}/rest/v1/content_history", headers={**get_supabase_headers(), "Prefer": "return=minimal"}, json={"product": product, "author": author, "target_keyword": kw, "content_type": content_type, "generated_text": text, "doctor_verdict": verdict, "status": "PASS" if "PASS" in str(verdict).upper() else "FAIL"}, timeout=8)
-    except: pass
+    url = f"{SUPABASE_URL}/rest/v1/content_history"
+    headers = get_supabase_headers()
+    headers["Prefer"] = "return=minimal"
+    payload = {
+        "product": product,
+        "author": author,
+        "target_keyword": kw,
+        "content_type": content_type,
+        "generated_text": text,
+        "doctor_verdict": verdict,
+        "status": "PASS" if "PASS" in str(verdict).upper() else "FAIL"
+    }
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=10)
+        if r.status_code in (200, 201, 204):
+            st.toast("💾 Результат успешно сохранен в историю!")
+        else:
+            st.error(f"⚠️ Ошибка записи в БД: {r.text}")
+    except Exception as e:
+        st.error(f"⚠️ Системная ошибка БД: {e}")
+
 def get_content_history(product: str):
     try:
         res = requests.get(f"{SUPABASE_URL}/rest/v1/content_history?product=eq.{product}&order=created_at.desc&limit=20", headers=get_supabase_headers(), timeout=8)
@@ -277,10 +293,10 @@ def get_content_history(product: str):
     return []
 
 # --- MAIN CONTENT AREA ---
-st.title(menu.split(" (")[0])
+st.title(st.session_state.active_tab.split(" (")[0])
 
 # 1. ГЕНЕРАЦИЯ + ДОКТОР
-if menu.startswith("✍️ Генерация"):
+if st.session_state.active_tab.startswith("✍️ Генерация"):
     with st.container(border=True):
         st.markdown("#### SEO параметры")
         col1, col2 = st.columns([1, 1])
@@ -323,12 +339,16 @@ if menu.startswith("✍️ Генерация"):
                     with st.spinner("Проверка..."):
                         doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_context}\nТЕКСТ:\n{generated_text}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
                         doc_verdict = generate_llm(doc_prompt, temperature=0.0)
-                        if "PASS" in doc_verdict.upper(): st.success(doc_verdict)
-                        else: st.error(doc_verdict)
+                        
+                        if "PASS" in doc_verdict.upper(): 
+                            st.success(doc_verdict)
+                        else: 
+                            st.error(doc_verdict)
+                            
                         save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
 
 # 2. GAP AUDIT
-elif menu.startswith("📊 Gap"):
+elif st.session_state.active_tab.startswith("📊 Gap"):
     with st.container(border=True):
         st.markdown("#### Параметры аудита")
         audit_kw = st.text_input("Проверить поисковый запрос на слепые зоны", value=f"Can {selected_product} integrate with HubSpot?")
@@ -371,7 +391,7 @@ elif menu.startswith("📊 Gap"):
             else: st.error("Факты не найдены в базе вообще. Это абсолютная слепая зона.")
 
 # 3. DATA MANAGER
-elif menu.startswith("⚙️ Data"):
+elif st.session_state.active_tab.startswith("⚙️ Data"):
     col_maps, col_playbooks = st.columns([1, 1])
     with col_maps:
         with st.container(border=True):
@@ -437,7 +457,7 @@ elif menu.startswith("⚙️ Data"):
                 else: st.error("Добавьте текст.")
 
 # 4. ЛИНК-БИЛДЕР
-elif menu.startswith("🔗 Линк"):
+elif st.session_state.active_tab.startswith("🔗 Линк"):
     with st.container(border=True):
         st.markdown("#### 🔗 Векторный подбор страниц сайта")
         search_link_kw = st.text_input("Тема для подбора URL", value="Digital Asset Management")
@@ -449,7 +469,7 @@ elif menu.startswith("🔗 Линк"):
                     st.markdown(f"**[{fp.get('title','')}]({fp.get('url','')})** {get_score_badge(fp.get('similarity',0))}", unsafe_allow_html=True)
 
 # 5. BATCH
-elif menu.startswith("⚡ Batch"):
+elif st.session_state.active_tab.startswith("⚡ Batch"):
     with st.container(border=True):
         st.markdown("#### ⚡ Пакетная генерация")
         batch_input = st.text_area("Ключи (по одному на строку)", value="Google Drive DAM integration")
@@ -466,7 +486,7 @@ elif menu.startswith("⚡ Batch"):
             st.dataframe(pd.DataFrame(results), hide_index=True, use_container_width=True)
 
 # 6. ИСТОРИЯ
-elif menu.startswith("📜 История"):
+elif st.session_state.active_tab.startswith("📜 История"):
     with st.container(border=True):
         hist_data = get_content_history(selected_product)
         if hist_data:
