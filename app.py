@@ -42,36 +42,47 @@ st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* Прячем кружочки у радио-кнопок */
-    [data-testid="stRadio"] div[role="radiogroup"] > label > div:first-of-type { display: none !important; }
-    
-    /* Стилизация пунктов меню */
-    [data-testid="stRadio"] div[role="radiogroup"] > label {
-        background-color: transparent !important; padding: 10px 15px !important; border-radius: 8px !important;
-        cursor: pointer !important; transition: all 0.2s ease !important; border: 1px solid transparent !important; margin-bottom: 4px !important;
+    /* Полностью скрываем стандартный кружок радио-кнопки */
+    [data-baseweb="radio"] > div:first-child {
+        display: none !important;
     }
     
-    /* Текст пунктов меню */
-    [data-testid="stRadio"] div[role="radiogroup"] > label p { color: #FAFAFA !important; font-size: 15px !important; }
-    
-    /* Ховер эффект для меню */
-    [data-testid="stRadio"] div[role="radiogroup"] > label:hover {
-        background-color: rgba(255, 255, 255, 0.05) !important; border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    /* Превращаем строку меню в красивую кнопку */
+    [data-baseweb="radio"] {
+        background-color: transparent !important;
+        padding: 10px 15px !important;
+        border-radius: 8px !important;
+        cursor: pointer !important;
+        transition: all 0.2s ease !important;
+        margin-bottom: 5px !important;
+        width: 100% !important;
     }
     
-    /* Активный пункт меню */
-    [data-testid="stRadio"] div[role="radiogroup"] > label[data-checked="true"],
-    [data-testid="stRadio"] div[role="radiogroup"] > label[aria-checked="true"] {
-        background-color: #FFC107 !important; border: 1px solid #E0A800 !important;
+    /* Ховер-эффект для неактивных кнопок */
+    [data-baseweb="radio"]:hover {
+        background-color: rgba(255, 255, 255, 0.08) !important;
     }
     
-    /* Текст активного пункта */
-    [data-testid="stRadio"] div[role="radiogroup"] > label[data-checked="true"] p,
-    [data-testid="stRadio"] div[role="radiogroup"] > label[aria-checked="true"] p {
-        color: #000000 !important; font-weight: 700 !important;
+    /* Текст неактивной кнопки */
+    [data-baseweb="radio"] p {
+        color: #E2E8F0 !important;
+        font-size: 15px !important;
+        margin: 0 !important;
     }
     
-    /* Фирменные желтые кнопки */
+    /* АКТИВНАЯ КНОПКА (Где мы сейчас находимся) */
+    [data-baseweb="radio"][aria-checked="true"] {
+        background-color: #FFC107 !important;
+        box-shadow: 0 4px 10px rgba(255, 193, 7, 0.15) !important;
+    }
+    
+    /* Текст активной кнопки (черный и жирный) */
+    [data-baseweb="radio"][aria-checked="true"] p {
+        color: #000000 !important;
+        font-weight: 800 !important;
+    }
+    
+    /* Фирменные желтые кнопки (Primary) */
     .stButton > button[kind="primary"] {
         background-color: #FFC107 !important; color: #000000 !important; border: none !important; font-weight: 700 !important; border-radius: 6px !important; transition: all 0.2s ease;
     }
@@ -85,7 +96,7 @@ st.markdown("""
     .badge-red { background-color: #4A1C1A; color: #FC8181; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid #9B2C2C; }
     .badge-neutral { background-color: rgba(255, 255, 255, 0.1); color: #A0AEC0; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; }
     
-    /* Оформляем логотипы как аккуратные иконки приложений */
+    /* Оформляем логотипы как аккуратные иконки */
     [data-testid="stSidebar"] [data-testid="stImage"] img {
         border-radius: 16px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
@@ -124,11 +135,9 @@ if not st.session_state["authenticated"]:
 with st.sidebar:
     st.write("") # Отступ сверху
     
-    # Чтобы узнать выбранный продукт ДО отрисовки селекта, инициализируем его в session_state, если нет
     if "selected_product" not in st.session_state:
         st.session_state.selected_product = "pics.io"
         
-    # Аккуратный вывод логотипа по центру
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
         try:
@@ -141,7 +150,6 @@ with st.sidebar:
             
     st.write("") 
     
-    # Селектор продукта
     selected_product = st.selectbox(
         "Продукт",
         options=["pics.io", "toriut"],
