@@ -37,12 +37,35 @@ if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
     except Exception:
         pass
 
-st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯")
+st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯", initial_sidebar_state="expanded")
 
-# --- CUSTOM CSS (SaaS UI) ---
+# --- CUSTOM CSS (Brand Dark Mode & Yellow Accents) ---
 st.markdown("""
 <style>
-    /* Сайдбар и меню навигации */
+    /* Принудительный темный фон и светлый текст */
+    .stApp, [data-testid="stHeader"] {
+        background-color: #0E1117 !important;
+        color: #FAFAFA !important;
+    }
+    [data-testid="stSidebar"] {
+        background-color: #161A22 !important;
+    }
+    
+    /* Фирменные желтые кнопки (Primary) */
+    .stButton > button[kind="primary"] {
+        background-color: #FFC107 !important;
+        color: #000000 !important;
+        border: none !important;
+        font-weight: 700 !important;
+        border-radius: 6px !important;
+        transition: all 0.2s ease;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #E0A800 !important;
+        transform: translateY(-1px);
+    }
+    
+    /* Сайдбар и меню навигации (Темная тема) */
     .stRadio div[role="radiogroup"] > label {
         background-color: transparent;
         padding: 10px 15px;
@@ -50,56 +73,69 @@ st.markdown("""
         margin-bottom: 4px;
         transition: background-color 0.2s ease;
         cursor: pointer;
+        color: #E2E8F0;
     }
     .stRadio div[role="radiogroup"] > label:hover {
-        background-color: #f0f2f6;
+        background-color: #2C313C;
     }
-    /* Цветные бейджи для скора и статусов */
+    
+    /* Рамки контейнеров */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        border-color: #333333 !important;
+    }
+    
+    /* Цветные бейджи для скора и статусов (Адаптация под темный фон) */
     .badge-green {
-        background-color: #e6f4ea;
-        color: #1e8e3e;
+        background-color: #1E3E23;
+        color: #68D391;
         padding: 2px 8px;
         border-radius: 12px;
         font-size: 0.85em;
         font-weight: 600;
         margin-left: 8px;
+        border: 1px solid #276749;
     }
     .badge-yellow {
-        background-color: #fef7e0;
-        color: #b06000;
+        background-color: #4A3500;
+        color: #F6AD55;
         padding: 2px 8px;
         border-radius: 12px;
         font-size: 0.85em;
         font-weight: 600;
         margin-left: 8px;
+        border: 1px solid #7B341E;
     }
     .badge-red {
-        background-color: #fce8e6;
-        color: #d93025;
+        background-color: #4A1C1A;
+        color: #FC8181;
         padding: 2px 8px;
         border-radius: 12px;
         font-size: 0.85em;
         font-weight: 600;
         margin-left: 8px;
+        border: 1px solid #9B2C2C;
     }
     .badge-neutral {
-        background-color: #f1f3f4;
-        color: #5f6368;
+        background-color: #2C313C;
+        color: #A0AEC0;
         padding: 2px 8px;
         border-radius: 12px;
         font-size: 0.85em;
         font-weight: 600;
         margin-left: 8px;
     }
+    
     /* Кастомные заголовки */
-    h1, h2, h3 {
-        color: #202124;
+    h1, h2, h3, h4 {
+        color: #FFFFFF !important;
         font-weight: 600 !important;
+    }
+    p, li {
+        color: #E2E8F0;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Функция для рендеринга бейджей
 def get_score_badge(score):
     if score >= 0.65:
         return f"<span class='badge-green'>Score: {score:.2f}</span>"
@@ -130,17 +166,37 @@ if not st.session_state["authenticated"]:
                     st.error("Неверный логин или пароль")
     st.stop()
 
-# --- САЙДБАР (SaaS Style Navigation) ---
+# --- САЙДБАР (С логотипами и навигацией) ---
 with st.sidebar:
+    # 1. Выбор продукта в самом верху (управляет логотипом)
+    selected_product = st.selectbox(
+        "Продукт",
+        options=["pics.io", "toriut"],
+        format_func=lambda x: "Pics.io (DAM)" if x == "pics.io" else "Toriut (PIM)",
+        label_visibility="collapsed"
+    )
+    
+    # 2. Динамический логотип
+    st.write("") # Небольшой отступ
+    try:
+        if selected_product == "pics.io":
+            st.image("pics_io_logo (2).jpeg", use_column_width=True)
+        else:
+            st.image("1727350888617 (2).jpeg", use_column_width=True)
+    except Exception:
+        st.caption(f"*(Логотип {selected_product} не найден)*")
+        
+    st.divider()
+
+    # 3. Пользователь и навигация
     st.markdown(f"👤 **Пользователь:** <span class='badge-neutral'>{st.session_state['username']}</span>", unsafe_allow_html=True)
     if st.button("🚪 Выйти", use_container_width=True):
         st.session_state["authenticated"] = False
         st.session_state["username"] = None
         st.rerun()
     
-    st.divider()
-    
-    st.markdown("<p style='color:#5f6368; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:0px;'>MODULES</p>", unsafe_allow_html=True)
+    st.write("")
+    st.markdown("<p style='color:#A0AEC0; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:0px;'>MODULES</p>", unsafe_allow_html=True)
     
     menu = st.radio(
         "Навигация",
@@ -157,14 +213,8 @@ with st.sidebar:
     
     st.divider()
     
-    st.markdown("<p style='color:#5f6368; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:0px;'>SETTINGS</p>", unsafe_allow_html=True)
-    selected_product = st.selectbox(
-        "Продукт",
-        options=["pics.io", "toriut"],
-        format_func=lambda x: "Pics.io (DAM)" if x == "pics.io" else "Toriut (PIM)",
-        label_visibility="collapsed"
-    )
-    
+    # 4. Настройки и статусы
+    st.markdown("<p style='color:#A0AEC0; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:0px;'>SETTINGS</p>", unsafe_allow_html=True)
     gemini_key_input = st.text_input("Gemini API Key", value=DEFAULT_GEMINI_KEY, type="password")
     CURRENT_KEY = gemini_key_input.strip().strip("'").strip('"')
 
@@ -211,10 +261,10 @@ EMBED_MODEL, GEN_MODEL, KEY_STATUS = resolve_models(CURRENT_KEY)
 with st.sidebar:
     if KEY_STATUS == "OK":
         st.markdown(f"""
-        <div style='background-color: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #e0e0e0; font-size: 0.85em;'>
-            <span style='color: #1e8e3e;'>●</span> <b>Connected</b><br>
-            <span style='color: #5f6368;'>Search:</span> {EMBED_MODEL.replace('models/', '')}<br>
-            <span style='color: #5f6368;'>Gen:</span> {GEN_MODEL.replace('models/', '')}
+        <div style='background-color: #2C313C; padding: 10px; border-radius: 8px; border: 1px solid #4A5568; font-size: 0.85em; color: #E2E8F0;'>
+            <span style='color: #68D391;'>●</span> <b>Connected</b><br>
+            <span style='color: #A0AEC0;'>Search:</span> {EMBED_MODEL.replace('models/', '')}<br>
+            <span style='color: #A0AEC0;'>Gen:</span> {GEN_MODEL.replace('models/', '')}
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -358,13 +408,12 @@ elif menu.startswith("📊 Gap"):
             if audit_facts:
                 best_sc = audit_facts[0].get("similarity", 0)
                 
-                # Кастомная плашка статуса
                 if best_sc > 0.65:
-                    st.markdown(f"<div style='background-color:#e6f4ea; padding:15px; border-radius:8px; border-left: 5px solid #1e8e3e;'><b>🟢 Отличное покрытие базы знаний!</b> Максимальная близость: {best_sc:.2f}</div><br>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background-color:#1E3E23; padding:15px; border-radius:8px; border-left: 5px solid #68D391; color: #E2E8F0;'><b>🟢 Отличное покрытие базы знаний!</b> Максимальная близость: {best_sc:.2f}</div><br>", unsafe_allow_html=True)
                 elif best_sc > 0.45:
-                    st.markdown(f"<div style='background-color:#fef7e0; padding:15px; border-radius:8px; border-left: 5px solid #b06000;'><b>🟡 Среднее покрытие.</b> Факты найдены, но могут быть слишком общими (Близость: {best_sc:.2f}).</div><br>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background-color:#4A3500; padding:15px; border-radius:8px; border-left: 5px solid #F6AD55; color: #E2E8F0;'><b>🟡 Среднее покрытие.</b> Факты найдены, но могут быть слишком общими (Близость: {best_sc:.2f}).</div><br>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"<div style='background-color:#fce8e6; padding:15px; border-radius:8px; border-left: 5px solid #d93025;'><b>🔴 Слепая зона.</b> Прямых фактов нет (Близость: {best_sc:.2f}). Требуется актуализация.</div><br>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background-color:#4A1C1A; padding:15px; border-radius:8px; border-left: 5px solid #FC8181; color: #E2E8F0;'><b>🔴 Слепая зона.</b> Прямых фактов нет (Близость: {best_sc:.2f}). Требуется актуализация.</div><br>", unsafe_allow_html=True)
 
                 c1, c2 = st.columns([1, 1.2])
                 with c1:
@@ -412,7 +461,7 @@ elif menu.startswith("⚙️ Data"):
             st.markdown("#### 🌐 Мониторинг Sitemap")
             st.caption("Парсинг сайтмапов для отслеживания новых лендингов и обновления старых страниц.")
             
-            st.markdown("<p style='font-size:0.9em;'><b>💡 Быстрый парсинг:</b></p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.9em; color:#A0AEC0;'><b>💡 Быстрый парсинг:</b></p>", unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             btn_pics = c1.button("🚀 pics.io", use_container_width=True)
             btn_bpics = c1.button("🚀 blog.pics.io", use_container_width=True)
@@ -432,7 +481,7 @@ elif menu.startswith("⚙️ Data"):
             if active_sitemap:
                 with st.spinner(f"Чтение {active_sitemap}..."):
                     try:
-                        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'Accept': 'application/xml, text/xml, */*; q=0.01'}
+                        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/xml, text/xml, */*; q=0.01'}
                         r = requests.get(active_sitemap, headers=headers, timeout=20)
                         r.raise_for_status()
                         root = ET.fromstring(r.content)
