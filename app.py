@@ -42,13 +42,13 @@ st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon
 # --- CUSTOM CSS (SaaS Navigation & Branding) ---
 st.markdown("""
 <style>
-    /* Выравниваем текст всех кнопок в сайдбаре по левому краю (под меню) */
+    /* Выравниваем текст всех кнопок в сайдбаре по левому краю */
     [data-testid="stSidebar"] .stButton > button {
         justify-content: flex-start !important;
         padding-left: 15px !important;
     }
     
-    /* Фирменные желтые кнопки (Primary) - Активный пункт меню и главные экшены */
+    /* Фирменные желтые кнопки (Primary) */
     .stButton > button[kind="primary"] {
         background-color: #FFC107 !important; 
         color: #000000 !important; 
@@ -62,7 +62,7 @@ st.markdown("""
         transform: translateY(-1px); 
     }
     
-    /* Вторичные кнопки в сайдбаре (Неактивные пункты меню) */
+    /* Вторичные кнопки в сайдбаре */
     [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
         background-color: transparent !important; 
         color: #E2E8F0 !important; 
@@ -266,7 +266,6 @@ def retrieve_facts(query: str, product: str, top_k: int = 6, threshold: float = 
     if not vec: 
         return []
     
-    # Динамический роутинг между изолированными таблицами facts и toriut_facts
     if product == "toriut":
         rpc_url = f"{SUPABASE_URL}/rest/v1/rpc/match_toriut_facts"
         payload = {
@@ -361,7 +360,32 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
             top_k = st.slider("Количество фактов из базы", 2, 12, 6)
         with c2: 
             top_links_count = st.slider("Количество внутренних ссылок", 1, 6, 3)
-        run_btn = st.button("🚀 Сгенерировать контент", type="primary")
+            
+        c_btn1, c_btn2 = st.columns([1, 1])
+        with c_btn1:
+            run_btn = st.button("🚀 Сгенерировать контент", type="primary", use_container_width=True)
+        with c_btn2:
+            sync_btn = st.button("⚡ Заполнить векторы Toriut прямо сейчас", use_container_width=True)
+
+        if sync_btn:
+            with st.spinner("Создаю эмбеддинги для всех фактов Toriut..."):
+                headers = get_supabase_headers()
+                res = requests.get(f"{SUPABASE_URL}/rest/v1/toriut_facts?select=id,claim", headers=headers)
+                if res.status_code == 200:
+                    facts_to_embed = res.json()
+                    ok_count = 0
+                    for f in facts_to_embed:
+                        vec = get_embedding(f["claim"])
+                        if vec:
+                            requests.patch(
+                                f"{SUPABASE_URL}/rest/v1/toriut_facts?id=eq.{f['id']}",
+                                headers=headers,
+                                json={"embedding": vec}
+                            )
+                            ok_count += 1
+                    st.success(f"Готово! Векторизовано строк: {ok_count} из {len(facts_to_embed)}")
+                else:
+                    st.error(f"Ошибка загрузки строк из Supabase: {res.text}")
 
     if run_btn and target_kw:
         st.divider()
