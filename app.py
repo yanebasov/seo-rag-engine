@@ -361,31 +361,7 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
         with c2: 
             top_links_count = st.slider("Количество внутренних ссылок", 1, 6, 3)
             
-        c_btn1, c_btn2 = st.columns([1, 1])
-        with c_btn1:
-            run_btn = st.button("🚀 Сгенерировать контент", type="primary", use_container_width=True)
-        with c_btn2:
-            sync_btn = st.button("⚡ Заполнить векторы Toriut прямо сейчас", use_container_width=True)
-
-        if sync_btn:
-            with st.spinner("Создаю эмбеддинги для всех фактов Toriut..."):
-                headers = get_supabase_headers()
-                res = requests.get(f"{SUPABASE_URL}/rest/v1/toriut_facts?select=id,claim", headers=headers)
-                if res.status_code == 200:
-                    facts_to_embed = res.json()
-                    ok_count = 0
-                    for f in facts_to_embed:
-                        vec = get_embedding(f["claim"])
-                        if vec:
-                            requests.patch(
-                                f"{SUPABASE_URL}/rest/v1/toriut_facts?id=eq.{f['id']}",
-                                headers=headers,
-                                json={"embedding": vec}
-                            )
-                            ok_count += 1
-                    st.success(f"Готово! Векторизовано строк: {ok_count} из {len(facts_to_embed)}")
-                else:
-                    st.error(f"Ошибка загрузки строк из Supabase: {res.text}")
+        run_btn = st.button("🚀 Сгенерировать контент", type="primary", use_container_width=True)
 
     if run_btn and target_kw:
         st.divider()
