@@ -140,13 +140,12 @@ with st.sidebar:
     
     st.write("") # Небольшой отступ
     try:
-        # Указаны точные имена файлов .jpeg, как вы просили
         if selected_product == "pics.io":
-            st.image("pics_io_logo (2).jpeg", use_container_width=True)
+            st.image("picsio_logo.jpeg", use_container_width=True)
         else:
-            st.image("1727350888617 (2).jpeg", use_container_width=True)
+            st.image("toriut_logo.jpeg", use_container_width=True)
     except Exception:
-        st.caption(f"*(Логотипы не найдены в корне репозитория)*")
+        st.caption("*(Логотипы не найдены в корне)*")
         
     st.divider()
 
