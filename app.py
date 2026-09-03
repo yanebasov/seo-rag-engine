@@ -39,7 +39,7 @@ if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
 
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯", initial_sidebar_state="expanded")
 
-# --- CUSTOM CSS (SaaS Navigation & Branding) ---
+# --- CUSTOM CSS (Adaptive SaaS Navigation & Branding) ---
 st.markdown("""
 <style>
     /* Выравниваем текст всех кнопок в сайдбаре по левому краю */
@@ -59,32 +59,35 @@ st.markdown("""
     }
     .stButton > button[kind="primary"]:hover {
         background-color: #E0A800 !important; 
+        color: #000000 !important;
         transform: translateY(-1px); 
     }
     
-    /* Вторичные кнопки в сайдбаре */
+    /* Неактивные кнопки: адаптивный цвет под любую тему */
     [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
         background-color: transparent !important; 
-        color: #E2E8F0 !important; 
+        color: var(--text-color) !important; 
         border: 1px solid transparent !important; 
         font-weight: 500 !important;
         border-radius: 8px !important;
+        opacity: 0.85;
     }
     [data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
-        background-color: rgba(255, 255, 255, 0.05) !important; 
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        background-color: rgba(128, 128, 128, 0.12) !important; 
+        border: 1px solid rgba(128, 128, 128, 0.2) !important;
+        opacity: 1;
     }
     
-    /* Цветные бейджи */
-    .badge-green { background-color: #1E3E23; color: #68D391; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid #276749; }
-    .badge-yellow { background-color: #4A3500; color: #F6AD55; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid #7B341E; }
-    .badge-red { background-color: #4A1C1A; color: #FC8181; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid #9B2C2C; }
-    .badge-neutral { background-color: rgba(255, 255, 255, 0.1); color: #A0AEC0; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; }
+    /* Адаптивные цветные бейджи для темной и светлой темы */
+    .badge-green { background-color: rgba(46, 133, 64, 0.2); color: #2E7D32; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid rgba(46, 133, 64, 0.4); }
+    .badge-yellow { background-color: rgba(245, 158, 11, 0.2); color: #D97706; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-red { background-color: rgba(239, 68, 68, 0.2); color: #DC2626; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-neutral { background-color: rgba(128, 128, 128, 0.15); color: var(--text-color); padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; }
     
     /* Скругляем логотипы */
     [data-testid="stSidebar"] [data-testid="stImage"] img {
         border-radius: 16px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -152,7 +155,7 @@ with st.sidebar:
         st.rerun()
     
     st.write("")
-    st.markdown("<p style='color:#A0AEC0; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:10px;'>MODULES</p>", unsafe_allow_html=True)
+    st.markdown("<p style='opacity: 0.7; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:10px;'>MODULES</p>", unsafe_allow_html=True)
     
     # --- НАТИВНАЯ КНОПОЧНАЯ НАВИГАЦИЯ ---
     menu_items = [
@@ -175,7 +178,7 @@ with st.sidebar:
     
     st.divider()
     
-    st.markdown("<p style='color:#A0AEC0; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:0px;'>SETTINGS</p>", unsafe_allow_html=True)
+    st.markdown("<p style='opacity: 0.7; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:0px;'>SETTINGS</p>", unsafe_allow_html=True)
     gemini_key_input = st.text_input("Gemini API Key", value=DEFAULT_GEMINI_KEY, type="password")
     CURRENT_KEY = gemini_key_input.strip().strip("'").strip('"')
 
@@ -216,10 +219,10 @@ EMBED_MODEL, GEN_MODEL, KEY_STATUS = resolve_models(CURRENT_KEY)
 with st.sidebar:
     if KEY_STATUS == "OK":
         st.markdown(f"""
-        <div style='background-color: rgba(255, 255, 255, 0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); font-size: 0.85em; color: #E2E8F0;'>
-            <span style='color: #68D391;'>●</span> <b>Connected</b><br>
-            <span style='color: #A0AEC0;'>Search:</span> {EMBED_MODEL.replace('models/', '')}<br>
-            <span style='color: #A0AEC0;'>Gen:</span> {GEN_MODEL.replace('models/', '')}
+        <div style='background-color: rgba(128, 128, 128, 0.08); padding: 10px; border-radius: 8px; border: 1px solid rgba(128, 128, 128, 0.2); font-size: 0.85em; color: var(--text-color);'>
+            <span style='color: #2E7D32;'>●</span> <b>Connected</b><br>
+            <span style='opacity: 0.7;'>Search:</span> {EMBED_MODEL.replace('models/', '')}<br>
+            <span style='opacity: 0.7;'>Gen:</span> {GEN_MODEL.replace('models/', '')}
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -463,7 +466,7 @@ elif st.session_state.active_tab.startswith("⚙️ Data"):
         with st.container(border=True):
             st.markdown("#### 🌐 Мониторинг Sitemap")
             st.caption("Парсинг сайтмапов для отслеживания новых лендингов и обновления старых страниц.")
-            st.markdown("<p style='font-size:0.9em; color:#A0AEC0;'><b>💡 Быстрый парсинг:</b></p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.9em; opacity:0.8;'><b>💡 Быстрый парсинг:</b></p>", unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             btn_pics = c1.button("🚀 pics.io", use_container_width=True)
             btn_bpics = c1.button("🚀 blog.pics.io", use_container_width=True)
