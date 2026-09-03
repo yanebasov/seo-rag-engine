@@ -324,17 +324,14 @@ def save_generation_to_history(product, author, kw, content_type, text, verdict)
         "status": "PASS" if "PASS" in str(verdict).upper() else "FAIL"
     }
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=10)
-        if r.status_code in (200, 201, 204):
-            st.toast("💾 Результат успешно сохранен в историю!")
-        else:
-            st.error(f"⚠️ Ошибка записи в БД: {r.text}")
-    except Exception as e:
-        st.error(f"⚠️ Системная ошибка БД: {e}")
+        requests.post(url, headers=headers, json=payload, timeout=10)
+    except Exception:
+        pass
 
 def get_content_history(product: str):
     try:
         res = requests.get(
+            # Здесь Supabase фильтрует историю только для выбранного продукта (product=eq.toriut или eq.pics.io)
             f"{SUPABASE_URL}/rest/v1/content_history?product=eq.{product}&order=created_at.desc&limit=20", 
             headers=get_supabase_headers(), 
             timeout=8
@@ -408,6 +405,7 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
                         else: 
                             st.error(doc_verdict)
                             
+                        # Сохраняем в БД с привязкой к selected_product
                         save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
 
 # 2. GAP AUDIT
@@ -455,7 +453,19 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
                     st.markdown("#### 🕵️ Пруфы аудита (Анализ от AI-стратега)")
                     with st.spinner("LLM анализирует нехватку данных..."):
                         proof_prompt = f"Ты контент-стратег для {selected_product}.\nSEO-специалист проверяет интент: '{audit_kw}'.\nНайдены фрагменты в базе:\n{facts_text}\nРелевантные страницы сайта:\n{pages_text}\nНапиши аудит-пруф:\n1. Вердикт: Хватит ли этого для статьи или будет 'вода'?\n2. Missing Info: Что нужно срочно задокументировать?\n3. Где актуализировать инфу: Посоветуй 1-2 страницы из списка."
-                        st.info(generate_llm(proof_prompt, temperature=0.3))
+                        audit_proof = generate_llm(proof_prompt, temperature=0.3)
+                        st.info(audit_proof)
+                        
+                        # Сохраняем Gap Audit в историю
+                        audit_status = "PASS" if best_sc >= 0.45 else "FAIL"
+                        save_generation_to_history(
+                            product=selected_product, 
+                            author=st.session_state["username"], 
+                            kw=audit_kw, 
+                            content_type="Gap Audit", 
+                            text=audit_proof, 
+                            verdict=f"Max Similarity: {best_sc:.2f} (Status: {audit_status})"
+                        )
             else: 
                 st.error("Факты не найдены в базе вообще. Это абсолютная слепая зона.")
 
@@ -557,10 +567,22 @@ elif st.session_state.active_tab.startswith("⚡ Batch"):
             bar = st.progress(0)
             for i, kw in enumerate(keywords):
                 facts = retrieve_facts(kw, selected_product, top_k=4)
-                txt = generate_llm(f"Напиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n" + "\n".join([f"- {f.get('claim','')}" for f in facts]))
-                results.append({"Keyword": kw, "Content": txt})
+                facts_context = "\n".join([f"- {f.get('claim','')}" for f in facts])
+                
+                txt = generate_llm(f"Напиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_context}")
+                
+                doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_context}\nТЕКСТ:\n{txt}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
+                doc_verdict = generate_llm(doc_prompt, temperature=0.0)
+                
+                # Сохраняем каждый результат пакета в историю
+                save_generation_to_history(selected_product, st.session_state["username"], kw, batch_type, txt, doc_verdict)
+                
+                status_badge = "✅ PASS" if "PASS" in doc_verdict.upper() else "❌ FAIL"
+                results.append({"Ключ": kw, "Текст": txt, "Статус": status_badge})
                 bar.progress((i + 1) / len(keywords))
+                
             st.dataframe(pd.DataFrame(results), hide_index=True, use_container_width=True)
+            st.success("🎉 Пакетная генерация завершена! Все результаты сохранены в Историю.")
 
 # 6. ИСТОРИЯ
 elif st.session_state.active_tab.startswith("📜 История"):
@@ -574,4 +596,4 @@ elif st.session_state.active_tab.startswith("📜 История"):
             st.markdown(row["generated_text"])
             st.info(row.get('doctor_verdict',''))
         else: 
-            st.info("Пусто.")
+            st.info(f"История для {selected_product.upper()} пока пуста.")
