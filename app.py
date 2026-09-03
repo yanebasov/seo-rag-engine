@@ -331,7 +331,6 @@ def save_generation_to_history(product, author, kw, content_type, text, verdict)
 def get_content_history(product: str):
     try:
         res = requests.get(
-            # Здесь Supabase фильтрует историю только для выбранного продукта (product=eq.toriut или eq.pics.io)
             f"{SUPABASE_URL}/rest/v1/content_history?product=eq.{product}&order=created_at.desc&limit=20", 
             headers=get_supabase_headers(), 
             timeout=8
@@ -405,7 +404,6 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
                         else: 
                             st.error(doc_verdict)
                             
-                        # Сохраняем в БД с привязкой к selected_product
                         save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
 
 # 2. GAP AUDIT
@@ -452,11 +450,21 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
                 with st.container(border=True):
                     st.markdown("#### 🕵️ Пруфы аудита (Анализ от AI-стратега)")
                     with st.spinner("LLM анализирует нехватку данных..."):
-                        proof_prompt = f"Ты контент-стратег для {selected_product}.\nSEO-специалист проверяет интент: '{audit_kw}'.\nНайдены фрагменты в базе:\n{facts_text}\nРелевантные страницы сайта:\n{pages_text}\nНапиши аудит-пруф:\n1. Вердикт: Хватит ли этого для статьи или будет 'вода'?\n2. Missing Info: Что нужно срочно задокументировать?\n3. Где актуализировать инфу: Посоветуй 1-2 страницы из списка."
+                        proof_prompt = f"""Ты — Lead Content Strategist для {selected_product}.
+SEO-специалист проверяет интент: '{audit_kw}'.
+Найдены фрагменты в базе:
+{facts_text}
+Релевантные страницы сайта:
+{pages_text}
+
+Проведи глубокий аудит и дай расширенные советы (форматируй красиво через Markdown, используй списки):
+1. 🎯 Вердикт по интенту: Насколько текущая база фактов закрывает боль пользователя? Хватит ли этого для экспертной статьи или получится рерайт/вода?
+2. 🚨 Слепые зоны (Missing Info): Чего критически не хватает в нашей базе, чтобы стать ответом №1 в Google? Какие конкретно детали/фичи нужно срочно вытянуть из продакт-менеджера?
+3. 🛠 Actionable Advice (Как и где исправить): Выбери 1-2 страницы из списка и дай развернутые советы по их улучшению. Что конкретно туда дописать? Какие новые H2/H3 блоки или таблицы добавить, чтобы закрыть интент? Обязательно сохрани ссылки на эти страницы в ответе."""
+                        
                         audit_proof = generate_llm(proof_prompt, temperature=0.3)
                         st.info(audit_proof)
                         
-                        # Сохраняем Gap Audit в историю
                         audit_status = "PASS" if best_sc >= 0.45 else "FAIL"
                         save_generation_to_history(
                             product=selected_product, 
@@ -574,7 +582,6 @@ elif st.session_state.active_tab.startswith("⚡ Batch"):
                 doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_context}\nТЕКСТ:\n{txt}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
                 doc_verdict = generate_llm(doc_prompt, temperature=0.0)
                 
-                # Сохраняем каждый результат пакета в историю
                 save_generation_to_history(selected_product, st.session_state["username"], kw, batch_type, txt, doc_verdict)
                 
                 status_badge = "✅ PASS" if "PASS" in doc_verdict.upper() else "❌ FAIL"
