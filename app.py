@@ -609,16 +609,30 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     total_items = len(links_data)
                     total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
                     
-                    col_p1, col_p2 = st.columns([2, 1])
-                    with col_p2:
-                        current_page = st.number_input("Страница", min_value=1, max_value=total_pages, value=1, step=1)
+                    # Инициализация страницы в session_state
+                    if "link_checker_page" not in st.session_state:
+                        st.session_state.link_checker_page = 1
                     
-                    start_idx = (current_page - 1) * items_per_page
+                    if st.session_state.link_checker_page > total_pages:
+                        st.session_state.link_checker_page = total_pages
+
+                    start_idx = (st.session_state.link_checker_page - 1) * items_per_page
                     end_idx = start_idx + items_per_page
                     page_data = links_data[start_idx:end_idx]
                     
-                    with col_p1:
-                        st.caption(f"Показано с {start_idx + 1} по {min(total_items, end_idx)} из {total_items} бэклинков")
+                    st.caption(f"Показано с {start_idx + 1} по {min(total_items, end_idx)} из {total_items} бэклинков")
+
+                    # Шапка-легенда табличного вида без иконок
+                    head_cols = st.columns([2, 2, 1.2, 0.7, 0.9, 0.9, 1, 0.4])
+                    head_cols[0].markdown("**Статья**")
+                    head_cols[1].markdown("**Цель**")
+                    head_cols[2].markdown("**Ключ**")
+                    head_cols[3].markdown("**Статус**")
+                    head_cols[4].markdown("**HTTP**")
+                    head_cols[5].markdown("**Атрибут**")
+                    head_cols[6].markdown("**Проверено**")
+                    head_cols[7].markdown("")
+                    st.divider()
 
                     for row in page_data:
                         row_id = row.get("id")
@@ -629,7 +643,7 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                             t_url = "#"
                         t_kw = row.get("target_keyword")
                         if not t_kw or t_kw == "None":
-                            t_kw = "— (не указан)"
+                            t_kw = "—"
                             
                         h_status = row.get("http_status", 0)
                         l_attr = row.get("link_attribute", "Unknown")
@@ -651,8 +665,8 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         else:
                             attr_badge = f"<span class='badge-red'>{l_attr}</span>"
 
-                        short_p = shorten_url(p_url, 32)
-                        short_t = shorten_url(t_url, 32)
+                        short_p = shorten_url(p_url, 30)
+                        short_t = shorten_url(t_url, 30)
 
                         with st.container(border=True):
                             c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_d = st.columns([2, 2, 1.2, 0.7, 0.9, 0.9, 1, 0.4])
@@ -679,6 +693,16 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Ошибка удаления: {e}")
+
+                    # Кастомная пагинация снизу (списком 1 2 3...)
+                    if total_pages > 1:
+                        st.write("")
+                        cols_pag = st.columns(min(10, total_pages) + 2)
+                        for p_num in range(1, total_pages + 1):
+                            btn_type = "primary" if p_num == st.session_state.link_checker_page else "secondary"
+                            if cols_pag[p_num - 1].button(str(p_num), key=f"pag_btn_{p_num}", type=btn_type):
+                                st.session_state.link_checker_page = p_num
+                                st.rerun()
 
                     st.write("")
                     df_links = pd.DataFrame(links_data)
