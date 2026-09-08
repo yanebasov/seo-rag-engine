@@ -473,25 +473,52 @@ SEO-специалист проверяет интент: '{audit_kw}'.
 elif st.session_state.active_tab.startswith("🌐 Link Checker"):
     with st.container(border=True):
         st.markdown(f"#### 🌐 Мониторинг бэклинков ({selected_product.upper()})")
-        st.caption("Добавьте URL статьи/сайта, где размещена ваша ссылка, чтобы проверить её статус и атрибут (dofollow / nofollow).")
+        st.caption("Добавьте единичную ссылку или загрузите CSV/TXT файл со списком URL для массовой проверки.")
         
-        col_in1, col_in2 = st.columns([2, 1])
-        with col_in1:
-            new_link_url = st.text_input("URL страницы с бэклинком", placeholder="https://example.com/guest-post-review")
-        with col_in2:
-            target_domain_query = st.text_input("Ваш домен для поиска", value="pics.io" if selected_product == "pics.io" else "toriut.com")
+        target_domain_query = st.text_input("Ваш домен для поиска в ссылках", value="pics.io" if selected_product == "pics.io" else "toriut.com")
+        
+        tab_single, tab_batch = st.tabs(["➕ Добавить одну ссылку", "📁 Загрузить файлом (CSV / TXT)"])
+        
+        urls_to_process = []
+        with tab_single:
+            single_url = st.text_input("URL страницы с бэклинком", placeholder="https://example.com/guest-post-review")
+            if st.button("Проверить и сохранить", type="primary"):
+                if single_url.strip():
+                    urls_to_process = [single_url.strip()]
+                else:
+                    st.warning("Введите URL.")
+
+        with tab_batch:
+            uploaded_links_file = st.file_uploader("Выберите CSV или TXT файл (по одному URL на строку)", type=["csv", "txt"])
+            if st.button("🚀 Запустить массовую проверку", type="primary"):
+                if uploaded_links_file:
+                    content = uploaded_links_file.read().decode("utf-8")
+                    if uploaded_links_file.name.endswith(".csv"):
+                        for line in content.splitlines():
+                            clean_l = line.split(",")[0].strip().strip('"').strip("'")
+                            if clean_l.startswith("http"):
+                                urls_to_process.append(clean_l)
+                    else:
+                        for line in content.splitlines():
+                            clean_l = line.strip()
+                            if clean_l.startswith("http"):
+                                urls_to_process.append(clean_l)
+                else:
+                    st.warning("Загрузите файл.")
+
+        # Обработка очереди URL
+        if urls_to_process:
+            target_brand = target_domain_query.strip().lower()
+            bar = st.progress(0)
+            success_cnt = 0
             
-        if st.button("➕ Добавить и проверить ссылку", type="primary"):
-            if new_link_url.strip():
-                url_to_check = new_link_url.strip()
-                target_brand = target_domain_query.strip().lower()
-                
+            for idx, url_to_check in enumerate(urls_to_process):
                 status_code = 0
                 attr_result = "Not Found"
                 
                 try:
                     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                    resp = requests.get(url_to_check, headers=headers, timeout=10)
+                    resp = requests.get(url_to_check, headers=headers, timeout=8)
                     status_code = resp.status_code
                     
                     if status_code == 200:
@@ -510,9 +537,9 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                             attr_result = "Link Missing"
                     else:
                         attr_result = f"HTTP Error {status_code}"
-                except Exception as e:
+                except Exception:
                     status_code = 0
-                    attr_result = f"Error: {e}"
+                    attr_result = "Error"
                 
                 # Сохраняем в Supabase
                 insert_url = f"{SUPABASE_URL}/rest/v1/link_checker"
@@ -525,13 +552,15 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     "link_attribute": attr_result
                 }
                 try:
-                    requests.post(insert_url, headers=headers_db, json=payload, timeout=8)
-                    st.success(f"Ссылка проверена и сохранена! Статус: HTTP {status_code} | Тип: {attr_result}")
-                    st.rerun()
-                except Exception as db_err:
-                    st.error(f"Ошибка сохранения в базу: {db_err}")
-            else:
-                st.warning("Введите URL.")
+                    requests.post(insert_url, headers=headers_db, json=payload, timeout=5)
+                    success_cnt += 1
+                except Exception:
+                    pass
+                
+                bar.progress((idx + 1) / len(urls_to_process))
+                
+            st.success(f"Готово! Обработано и проверено ссылок: {success_cnt} из {len(urls_to_process)}")
+            st.rerun()
 
         st.divider()
         
@@ -545,7 +574,6 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     df_links = pd.DataFrame(links_data)
                     st.dataframe(df_links[["checked_at", "page_url", "http_status", "link_attribute"]], use_container_width=True, hide_index=True)
                     
-                    # Экспорт в CSV
                     csv_data = df_links.to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="📥 Экспорт в CSV файл",
@@ -556,7 +584,7 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     )
                 else:
                     st.info(f"Список бэклинков для {selected_product.upper()} пуст.")
-        except Exception as e:
+        except Exception:
             st.info("База бэклинков пока недоступна.")
 
 # 3. DATA MANAGER
@@ -659,7 +687,7 @@ elif st.session_state.active_tab.startswith("⚡ Batch"):
                 facts = retrieve_facts(kw, selected_product, top_k=4)
                 facts_context = "\n".join([f"- {f.get('claim','')}" for f in facts])
                 
-                txt = generate_llm(f"Naпиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_context}")
+                txt = generate_llm(f"Напиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_context}")
                 
                 doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_context}\nТЕКСТ:\n{txt}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
                 doc_verdict = generate_llm(doc_prompt, temperature=0.0)
