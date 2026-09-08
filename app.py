@@ -475,46 +475,70 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
         st.markdown(f"#### 🌐 Мониторинг бэклинков ({selected_product.upper()})")
         st.caption("Добавьте единичную ссылку или загрузите файл со списком URL для проверки.")
         
-        target_domain_query = st.text_input("Ваш домен для поиска в ссылках", value="pics.io" if selected_product == "pics.io" else "toriut.com")
-        
         tab_single, tab_batch = st.tabs(["➕ Добавить одну ссылку", "📁 Загрузить файлом (CSV / TXT)"])
         
-        urls_to_process = []
+        single_to_add = None
+        batch_items = []
+        
         with tab_single:
-            single_url = st.text_input("URL страницы с бэклинком", placeholder="https://example.com/guest-post-review", key="single_link_input")
+            col_s1, col_s2, col_s3 = st.columns([1.5, 1.5, 1])
+            with col_s1:
+                single_url = st.text_input("URL статьи (где размещен бэклинк)", placeholder="https://example.com/review", key="single_url_inp")
+            with col_s2:
+                single_target = st.text_input("Куда ссылаемся (Target URL)", placeholder="https://pics.io/feature", key="single_target_inp")
+            with col_s3:
+                single_kw = st.text_input("Ключ / Бренд для поиска", placeholder="pics.io", key="single_kw_inp")
+            
             if st.button("Проверить и сохранить", type="primary"):
-                if single_url.strip():
-                    urls_to_process = [single_url.strip()]
+                if single_url.strip() and single_target.strip() and single_kw.strip():
+                    single_to_add = (single_url.strip(), single_target.strip(), single_kw.strip())
                 else:
-                    st.warning("Введите URL.")
+                    st.warning("Заполните все три поля: URL статьи, Target URL и Ключ.")
 
         with tab_batch:
-            uploaded_links_file = st.file_uploader("Выберите CSV или TXT файл (по одному URL на строку)", type=["csv", "txt"])
+            st.caption("Формат CSV: `URL статьи, Target URL, Ключ`. В TXT: строка вида `URL статьи | Target URL | Ключ`")
+            uploaded_links_file = st.file_uploader("Выберите файл", type=["csv", "txt"])
             if st.button("🚀 Запустить массовую проверку", type="primary"):
                 if uploaded_links_file:
                     content = uploaded_links_file.read().decode("utf-8")
-                    if uploaded_links_file.name.endswith(".csv"):
-                        for line in content.splitlines():
-                            clean_l = line.split(",")[0].strip().strip('"').strip("'")
-                            if clean_l.startswith("http"):
-                                urls_to_process.append(clean_l)
-                    else:
-                        for line in content.splitlines():
-                            clean_l = line.strip()
-                            if clean_l.startswith("http"):
-                                urls_to_process.append(clean_l)
+                    lines = content.splitlines()
+                    for line in lines:
+                        if "|" in line:
+                            parts = line.split("|")
+                            if len(parts) >= 3:
+                                u = parts[0].strip()
+                                targ = parts[1].strip()
+                                k = parts[2].strip()
+                                if u.startswith("http"):
+                                    batch_items.append((u, targ, k))
+                        elif "," in line:
+                            parts = line.split(",")
+                            if len(parts) >= 3:
+                                u = parts[0].strip().strip('"').strip("'")
+                                targ = parts[1].strip().strip('"').strip("'")
+                                k = parts[2].strip().strip('"').strip("'")
+                                if u.startswith("http"):
+                                    batch_items.append((u, targ, k))
                 else:
                     st.warning("Загрузите файл.")
 
+        # Объединяем в общую очередь на обработку
+        queue_to_process = []
+        if single_to_add:
+            queue_to_process.append(single_to_add)
+        if batch_items:
+            queue_to_process.extend(batch_items)
+
         # Обработка очереди URL
-        if urls_to_process:
-            target_brand = target_domain_query.strip().lower()
+        if queue_to_process:
             bar = st.progress(0)
             success_cnt = 0
             
-            for idx, url_to_check in enumerate(urls_to_process):
+            for idx, (url_to_check, target_url, target_brand) in enumerate(queue_to_process):
                 status_code = 0
                 attr_result = "Not Found"
+                t_brand_lower = target_brand.lower()
+                t_url_lower = target_url.lower()
                 
                 try:
                     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -525,7 +549,10 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         soup = BeautifulSoup(resp.text, 'html.parser')
                         found = False
                         for a in soup.find_all('a', href=True):
-                            if target_brand in a['href'].lower():
+                            href_val = a['href'].lower()
+                            txt_val = a.get_text().lower()
+                            # Проверяем совпадение по нашему Target URL или по ключу/бренду
+                            if (t_url_lower in href_val) or (t_brand_lower in href_val) or (t_brand_lower in txt_val):
                                 found = True
                                 rel_vals = [r.lower() for r in a.get('rel', [])]
                                 if 'nofollow' in rel_vals:
@@ -541,13 +568,15 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     status_code = 0
                     attr_result = "Error"
                 
-                # Сохраняем в Supabase
+                # Сохраняем в Supabase (включая target_url и target_keyword)
                 insert_url = f"{SUPABASE_URL}/rest/v1/link_checker"
                 headers_db = get_supabase_headers()
                 headers_db["Prefer"] = "return=minimal"
                 payload = {
                     "product": selected_product,
                     "page_url": url_to_check,
+                    "target_url": target_url,
+                    "target_keyword": target_brand,
                     "http_status": status_code,
                     "link_attribute": attr_result
                 }
@@ -557,14 +586,14 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                 except Exception:
                     pass
                 
-                bar.progress((idx + 1) / len(urls_to_process))
+                bar.progress((idx + 1) / len(queue_to_process))
                 
-            st.success(f"Готово! Проверено ссылок: {success_cnt} из {len(urls_to_process)}")
+            st.success(f"Готово! Проверено ссылок: {success_cnt} из {len(queue_to_process)}")
             st.rerun()
 
         st.divider()
         
-        # Загружаем сохраненные ссылки для текущего продукта с пагинацией, карточками и кнопкой удаления
+        # Загружаем сохраненные ссылки с пагинацией, карточками, Target URL, ключом и кнопкой удаления
         try:
             get_links_url = f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}&order=checked_at.desc"
             r_links = requests.get(get_links_url, headers=get_supabase_headers(), timeout=8)
@@ -592,9 +621,16 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         row_id = row.get("id")
                         checked_time = row.get("checked_at", "").replace("T", " ")[:19]
                         p_url = row.get("page_url", "#")
+                        t_url = row.get("target_url", "#")
+                        t_kw = row.get("target_keyword", "-")
                         h_status = row.get("http_status", 0)
                         l_attr = row.get("link_attribute", "Unknown")
                         
+                        if h_status == 200 and l_attr not in ["Not Found", "Link Missing", "Error"] and not str(l_attr).startswith("HTTP"):
+                            live_badge = "<span class='badge-green'>🟢 Live</span>"
+                        else:
+                            live_badge = "<span class='badge-red'>🔴 Dead</span>"
+
                         if h_status == 200:
                             status_badge = f"<span class='badge-green'>HTTP {h_status}</span>"
                         else:
@@ -608,15 +644,21 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                             attr_badge = f"<span class='badge-red'>{l_attr}</span>"
 
                         with st.container(border=True):
-                            c_u, c_s, c_a, c_t, c_d = st.columns([2.5, 1, 1, 1.2, 0.6])
+                            c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_d = st.columns([2, 1.8, 1, 0.7, 0.9, 0.9, 1, 0.4])
                             with c_u:
-                                st.markdown(f"🔗 [{p_url}]({p_url})", unsafe_allow_html=True)
+                                st.markdown(f"🔗 [Статья]({p_url})", unsafe_allow_html=True)
+                            with c_tar:
+                                st.markdown(f"🎯 [Цель]({t_url})", unsafe_allow_html=True)
+                            with c_k:
+                                st.markdown(f"🔑 `{t_kw}`")
+                            with c_l:
+                                st.markdown(live_badge, unsafe_allow_html=True)
                             with c_s:
                                 st.markdown(status_badge, unsafe_allow_html=True)
                             with c_a:
                                 st.markdown(attr_badge, unsafe_allow_html=True)
                             with c_t:
-                                st.markdown(f"<span style='opacity:0.6; font-size:0.85em;'>{checked_time}</span>", unsafe_allow_html=True)
+                                st.markdown(f"<span style='opacity:0.6; font-size:0.8em;'>{checked_time}</span>", unsafe_allow_html=True)
                             with c_d:
                                 if st.button("🗑️", key=f"del_link_{row_id}", help="Удалить из базы"):
                                     del_url = f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}"
