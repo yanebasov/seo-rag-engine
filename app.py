@@ -564,7 +564,7 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
 
         st.divider()
         
-        # Красивый вывод с пагинацией и бейджами
+        # Загружаем сохраненные ссылки для текущего продукта с пагинацией, карточками и кнопкой удаления
         try:
             get_links_url = f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}&order=checked_at.desc"
             r_links = requests.get(get_links_url, headers=get_supabase_headers(), timeout=8)
@@ -573,7 +573,6 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                 if links_data:
                     st.markdown("#### 📋 База бэклинков и их статус")
                     
-                    # Настройка пагинации (по 10 штук на страницу)
                     items_per_page = 10
                     total_items = len(links_data)
                     total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
@@ -587,22 +586,20 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     page_data = links_data[start_idx:end_idx]
                     
                     with col_p1:
-                        st.caption( показано с {start_idx + 1} по {min(total_items, end_idx)} из {total_items} бэклинков)
+                        st.caption(f"Показано с {start_idx + 1} по {min(total_items, end_idx)} из {total_items} бэклинков")
 
-                    # Рендерим красивые карточки вместо плоской таблицы
                     for row in page_data:
+                        row_id = row.get("id")
                         checked_time = row.get("checked_at", "").replace("T", " ")[:19]
                         p_url = row.get("page_url", "#")
                         h_status = row.get("http_status", 0)
                         l_attr = row.get("link_attribute", "Unknown")
                         
-                        # Определяем цвет бейджа статуса
                         if h_status == 200:
                             status_badge = f"<span class='badge-green'>HTTP {h_status}</span>"
                         else:
                             status_badge = f"<span class='badge-red'>HTTP {h_status}</span>"
                             
-                        # Бейдж атрибута ссылки
                         if l_attr == "dofollow":
                             attr_badge = f"<span class='badge-green'>{l_attr}</span>"
                         elif l_attr == "nofollow":
@@ -611,7 +608,7 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                             attr_badge = f"<span class='badge-red'>{l_attr}</span>"
 
                         with st.container(border=True):
-                            c_u, c_s, c_a, c_t = st.columns([3, 1, 1, 1.2])
+                            c_u, c_s, c_a, c_t, c_d = st.columns([2.5, 1, 1, 1.2, 0.6])
                             with c_u:
                                 st.markdown(f"🔗 [{p_url}]({p_url})", unsafe_allow_html=True)
                             with c_s:
@@ -620,6 +617,15 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                                 st.markdown(attr_badge, unsafe_allow_html=True)
                             with c_t:
                                 st.markdown(f"<span style='opacity:0.6; font-size:0.85em;'>{checked_time}</span>", unsafe_allow_html=True)
+                            with c_d:
+                                if st.button("🗑️", key=f"del_link_{row_id}", help="Удалить из базы"):
+                                    del_url = f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}"
+                                    try:
+                                        requests.delete(del_url, headers=get_supabase_headers(), timeout=5)
+                                        st.toast("Ссылка удалена!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Ошибка удаления: {e}")
 
                     st.write("")
                     df_links = pd.DataFrame(links_data)
@@ -635,6 +641,7 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     st.info(f"Список бэклинков для {selected_product.upper()} пока пуст.")
         except Exception:
             st.info("База бэклинков пока недоступна.")
+
 # 3. DATA MANAGER
 elif st.session_state.active_tab.startswith("⚙️ Data"):
     col_maps, col_playbooks = st.columns([1, 1])
