@@ -635,9 +635,9 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         l_attr = row.get("link_attribute", "Unknown")
                         
                         if h_status == 200 and l_attr not in ["Not Found", "Link Missing", "Error"] and not str(l_attr).startswith("HTTP"):
-                            live_badge = "<span class='badge-green'>🟢 Live</span>"
+                            live_badge = "<span class='badge-green'>Live</span>"
                         else:
-                            live_badge = "<span class='badge-red'>🔴 Dead</span>"
+                            live_badge = "<span class='badge-red'>Dead</span>"
 
                         if h_status == 200:
                             status_badge = f"<span class='badge-green'>HTTP {h_status}</span>"
@@ -657,11 +657,11 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         with st.container(border=True):
                             c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_d = st.columns([2, 2, 1.2, 0.7, 0.9, 0.9, 1, 0.4])
                             with c_u:
-                                st.markdown(f"🔗 [{short_p}]({p_url})", unsafe_allow_html=True)
+                                st.markdown(f"[{short_p}]({p_url})", unsafe_allow_html=True)
                             with c_tar:
-                                st.markdown(f"🎯 [{short_t}]({t_url})", unsafe_allow_html=True)
+                                st.markdown(f"[{short_t}]({t_url})", unsafe_allow_html=True)
                             with c_k:
-                                st.markdown(f"🔑 `{t_kw}`")
+                                st.markdown(f"`{t_kw}`")
                             with c_l:
                                 st.markdown(live_badge, unsafe_allow_html=True)
                             with c_s:
@@ -793,11 +793,11 @@ elif st.session_state.active_tab.startswith("⚡ Batch"):
             bar = st.progress(0)
             for i, kw in enumerate(keywords):
                 facts = retrieve_facts(kw, selected_product, top_k=4)
-                facts_content = "\n".join([f"- {f.get('claim','')}" for f in facts])
+                facts_context = "\n".join([f"- {f.get('claim','')}" for f in facts])
                 
-                txt = generate_llm(f"Напиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_content}")
+                txt = generate_llm(f"Напиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_context}")
                 
-                doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_content}\nТЕКСТ:\n{txt}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
+                doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_context}\nТЕКСТ:\n{txt}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
                 doc_verdict = generate_llm(doc_prompt, temperature=0.0)
                 
                 save_generation_to_history(selected_product, st.session_state["username"], kw, batch_type, txt, doc_verdict)
