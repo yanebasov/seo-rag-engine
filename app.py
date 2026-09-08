@@ -89,6 +89,14 @@ def get_score_badge(score):
     elif score >= 0.45: return f"<span class='badge-yellow'>Score: {score:.2f}</span>"
     else: return f"<span class='badge-red'>Score: {score:.2f}</span>"
 
+def shorten_url(url, max_len=30):
+    if not url or url == "#" or url == "None":
+        return "—"
+    clean = url.replace("https://", "").replace("http://", "").replace("www.", "")
+    if len(clean) > max_len:
+        return clean[:max_len] + "..."
+    return clean
+
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
     st.session_state["username"] = None
@@ -487,7 +495,7 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
             with col_s2:
                 single_target = st.text_input("Куда ссылаемся (Target URL)", placeholder="https://pics.io/feature", key="single_target_inp")
             with col_s3:
-                single_kw = st.text_input("Ключ / Бренд для поиска", placeholder="pics.io", key="single_kw_inp")
+                single_kw = st.text_input("Ключевое слово / Бренд", placeholder="pics.io", key="single_kw_inp")
             
             if st.button("Проверить и сохранить", type="primary"):
                 if single_url.strip() and single_target.strip() and single_kw.strip():
@@ -522,14 +530,12 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                 else:
                     st.warning("Загрузите файл.")
 
-        # Объединяем в общую очередь на обработку
         queue_to_process = []
         if single_to_add:
             queue_to_process.append(single_to_add)
         if batch_items:
             queue_to_process.extend(batch_items)
 
-        # Обработка очереди URL
         if queue_to_process:
             bar = st.progress(0)
             success_cnt = 0
@@ -551,7 +557,6 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         for a in soup.find_all('a', href=True):
                             href_val = a['href'].lower()
                             txt_val = a.get_text().lower()
-                            # Проверяем совпадение по нашему Target URL или по ключу/бренду
                             if (t_url_lower in href_val) or (t_brand_lower in href_val) or (t_brand_lower in txt_val):
                                 found = True
                                 rel_vals = [r.lower() for r in a.get('rel', [])]
@@ -568,7 +573,6 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     status_code = 0
                     attr_result = "Error"
                 
-                # Сохраняем в Supabase (включая target_url и target_keyword)
                 insert_url = f"{SUPABASE_URL}/rest/v1/link_checker"
                 headers_db = get_supabase_headers()
                 headers_db["Prefer"] = "return=minimal"
@@ -593,7 +597,6 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
 
         st.divider()
         
-        # Загружаем сохраненные ссылки с пагинацией, карточками, Target URL, ключом и кнопкой удаления
         try:
             get_links_url = f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}&order=checked_at.desc"
             r_links = requests.get(get_links_url, headers=get_supabase_headers(), timeout=8)
@@ -622,7 +625,12 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         checked_time = row.get("checked_at", "").replace("T", " ")[:19]
                         p_url = row.get("page_url", "#")
                         t_url = row.get("target_url", "#")
-                        t_kw = row.get("target_keyword", "-")
+                        if not t_url or t_url == "None":
+                            t_url = "#"
+                        t_kw = row.get("target_keyword")
+                        if not t_kw or t_kw == "None":
+                            t_kw = "— (не указан)"
+                            
                         h_status = row.get("http_status", 0)
                         l_attr = row.get("link_attribute", "Unknown")
                         
@@ -643,12 +651,15 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         else:
                             attr_badge = f"<span class='badge-red'>{l_attr}</span>"
 
+                        short_p = shorten_url(p_url, 32)
+                        short_t = shorten_url(t_url, 32)
+
                         with st.container(border=True):
-                            c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_d = st.columns([2, 1.8, 1, 0.7, 0.9, 0.9, 1, 0.4])
+                            c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_d = st.columns([2, 2, 1.2, 0.7, 0.9, 0.9, 1, 0.4])
                             with c_u:
-                                st.markdown(f"🔗 [Статья]({p_url})", unsafe_allow_html=True)
+                                st.markdown(f"🔗 [{short_p}]({p_url})", unsafe_allow_html=True)
                             with c_tar:
-                                st.markdown(f"🎯 [Цель]({t_url})", unsafe_allow_html=True)
+                                st.markdown(f"🎯 [{short_t}]({t_url})", unsafe_allow_html=True)
                             with c_k:
                                 st.markdown(f"🔑 `{t_kw}`")
                             with c_l:
@@ -782,11 +793,11 @@ elif st.session_state.active_tab.startswith("⚡ Batch"):
             bar = st.progress(0)
             for i, kw in enumerate(keywords):
                 facts = retrieve_facts(kw, selected_product, top_k=4)
-                facts_context = "\n".join([f"- {f.get('claim','')}" for f in facts])
+                facts_content = "\n".join([f"- {f.get('claim','')}" for f in facts])
                 
-                txt = generate_llm(f"Напиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_context}")
+                txt = generate_llm(f"Напиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_content}")
                 
-                doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_context}\nТЕКСТ:\n{txt}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
+                doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_content}\nТЕКСТ:\n{txt}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
                 doc_verdict = generate_llm(doc_prompt, temperature=0.0)
                 
                 save_generation_to_history(selected_product, st.session_state["username"], kw, batch_type, txt, doc_verdict)
