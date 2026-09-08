@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 import streamlit as st
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 
 try:
     from dotenv import load_dotenv
@@ -42,13 +43,10 @@ st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon
 # --- CUSTOM CSS (Adaptive SaaS Navigation & Branding) ---
 st.markdown("""
 <style>
-    /* Выравниваем текст всех кнопок в сайдбаре по левому краю */
     [data-testid="stSidebar"] .stButton > button {
         justify-content: flex-start !important;
         padding-left: 15px !important;
     }
-    
-    /* Фирменные желтые кнопки (Primary) */
     .stButton > button[kind="primary"] {
         background-color: #FFC107 !important; 
         color: #000000 !important; 
@@ -62,8 +60,6 @@ st.markdown("""
         color: #000000 !important;
         transform: translateY(-1px); 
     }
-    
-    /* Неактивные кнопки: адаптивный цвет под любую тему */
     [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
         background-color: transparent !important; 
         color: var(--text-color) !important; 
@@ -77,14 +73,10 @@ st.markdown("""
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
         opacity: 1;
     }
-    
-    /* Адаптивные цветные бейджи для темной и светлой темы */
     .badge-green { background-color: rgba(46, 133, 64, 0.2); color: #2E7D32; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid rgba(46, 133, 64, 0.4); }
     .badge-yellow { background-color: rgba(245, 158, 11, 0.2); color: #D97706; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid rgba(245, 158, 11, 0.4); }
     .badge-red { background-color: rgba(239, 68, 68, 0.2); color: #DC2626; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; border: 1px solid rgba(239, 68, 68, 0.4); }
     .badge-neutral { background-color: rgba(128, 128, 128, 0.15); color: var(--text-color); padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 600; margin-left: 8px; }
-    
-    /* Скругляем логотипы */
     [data-testid="stSidebar"] [data-testid="stImage"] img {
         border-radius: 16px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
@@ -157,10 +149,10 @@ with st.sidebar:
     st.write("")
     st.markdown("<p style='opacity: 0.7; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:10px;'>MODULES</p>", unsafe_allow_html=True)
     
-    # --- НАТИВНАЯ КНОПОЧНАЯ НАВИГАЦИЯ ---
     menu_items = [
         "✍️ Генерация + Доктор",
         "📊 Gap Audit",
+        "🌐 Link Checker",
         "⚙️ Data Manager",
         "🔗 Линк-билдер",
         "⚡ Batch Processing",
@@ -459,7 +451,7 @@ SEO-специалист проверяет интент: '{audit_kw}'.
 
 Проведи глубокий аудит и дай расширенные советы (форматируй красиво через Markdown, используй списки):
 1. 🎯 Вердикт по интенту: Насколько текущая база фактов закрывает боль пользователя? Хватит ли этого для экспертной статьи или получится рерайт/вода?
-2. 🚨 Слепые зоны (Missing Info): Чего критически не хватает в нашей базе, чтобы стать ответом №1 в Google? Какие конкретно детали/фичи нужно срочно вытянуть из продакт-менеджера?
+2. 🚨 Слепые зоны (Missing Info): Чего критически не хватает в нашей базе, чтобы стать ответом №1 в Google? Какие конкретно детали/фичи нужно срочно задокументировать?
 3. 🛠 Actionable Advice (Как и где исправить): Выбери 1-2 страницы из списка и дай развернутые советы по их улучшению. Что конкретно туда дописать? Какие новые H2/H3 блоки или таблицы добавить, чтобы закрыть интент? Обязательно сохрани ссылки на эти страницы в ответе."""
                         
                         audit_proof = generate_llm(proof_prompt, temperature=0.3)
@@ -476,6 +468,96 @@ SEO-специалист проверяет интент: '{audit_kw}'.
                         )
             else: 
                 st.error("Факты не найдены в базе вообще. Это абсолютная слепая зона.")
+
+# 2.1. LINK CHECKER (Мониторинг бэклинков)
+elif st.session_state.active_tab.startswith("🌐 Link Checker"):
+    with st.container(border=True):
+        st.markdown(f"#### 🌐 Мониторинг бэклинков ({selected_product.upper()})")
+        st.caption("Добавьте URL статьи/сайта, где размещена ваша ссылка, чтобы проверить её статус и атрибут (dofollow / nofollow).")
+        
+        col_in1, col_in2 = st.columns([2, 1])
+        with col_in1:
+            new_link_url = st.text_input("URL страницы с бэклинком", placeholder="https://example.com/guest-post-review")
+        with col_in2:
+            target_domain_query = st.text_input("Ваш домен для поиска", value="pics.io" if selected_product == "pics.io" else "toriut.com")
+            
+        if st.button("➕ Добавить и проверить ссылку", type="primary"):
+            if new_link_url.strip():
+                url_to_check = new_link_url.strip()
+                target_brand = target_domain_query.strip().lower()
+                
+                status_code = 0
+                attr_result = "Not Found"
+                
+                try:
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    resp = requests.get(url_to_check, headers=headers, timeout=10)
+                    status_code = resp.status_code
+                    
+                    if status_code == 200:
+                        soup = BeautifulSoup(resp.text, 'html.parser')
+                        found = False
+                        for a in soup.find_all('a', href=True):
+                            if target_brand in a['href'].lower():
+                                found = True
+                                rel_vals = [r.lower() for r in a.get('rel', [])]
+                                if 'nofollow' in rel_vals:
+                                    attr_result = "nofollow"
+                                else:
+                                    attr_result = "dofollow"
+                                break
+                        if not found:
+                            attr_result = "Link Missing"
+                    else:
+                        attr_result = f"HTTP Error {status_code}"
+                except Exception as e:
+                    status_code = 0
+                    attr_result = f"Error: {e}"
+                
+                # Сохраняем в Supabase
+                insert_url = f"{SUPABASE_URL}/rest/v1/link_checker"
+                headers_db = get_supabase_headers()
+                headers_db["Prefer"] = "return=minimal"
+                payload = {
+                    "product": selected_product,
+                    "page_url": url_to_check,
+                    "http_status": status_code,
+                    "link_attribute": attr_result
+                }
+                try:
+                    requests.post(insert_url, headers=headers_db, json=payload, timeout=8)
+                    st.success(f"Ссылка проверена и сохранена! Статус: HTTP {status_code} | Тип: {attr_result}")
+                    st.rerun()
+                except Exception as db_err:
+                    st.error(f"Ошибка сохранения в базу: {db_err}")
+            else:
+                st.warning("Введите URL.")
+
+        st.divider()
+        
+        # Загружаем сохраненные ссылки для текущего продукта
+        try:
+            get_links_url = f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}&order=checked_at.desc"
+            r_links = requests.get(get_links_url, headers=get_supabase_headers(), timeout=8)
+            if r_links.status_code == 200:
+                links_data = r_links.json()
+                if links_data:
+                    df_links = pd.DataFrame(links_data)
+                    st.dataframe(df_links[["checked_at", "page_url", "http_status", "link_attribute"]], use_container_width=True, hide_index=True)
+                    
+                    # Экспорт в CSV
+                    csv_data = df_links.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Экспорт в CSV файл",
+                        data=csv_data,
+                        file_name=f"link_checker_{selected_product}.csv",
+                        mime="text/csv",
+                        type="primary"
+                    )
+                else:
+                    st.info(f"Список бэклинков для {selected_product.upper()} пуст.")
+        except Exception as e:
+            st.info("База бэклинков пока недоступна.")
 
 # 3. DATA MANAGER
 elif st.session_state.active_tab.startswith("⚙️ Data"):
@@ -577,7 +659,7 @@ elif st.session_state.active_tab.startswith("⚡ Batch"):
                 facts = retrieve_facts(kw, selected_product, top_k=4)
                 facts_context = "\n".join([f"- {f.get('claim','')}" for f in facts])
                 
-                txt = generate_llm(f"Напиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_context}")
+                txt = generate_llm(f"Naпиши {batch_type} для {selected_product} по теме '{kw}'. Факты:\n{facts_context}")
                 
                 doc_prompt = f"Проверь текст на соответствие фактам:\nФАКТЫ:\n{facts_context}\nТЕКСТ:\n{txt}\nВердикт: Есть галлюцинации? Статус: PASS или FAIL."
                 doc_verdict = generate_llm(doc_prompt, temperature=0.0)
