@@ -473,7 +473,7 @@ SEO-специалист проверяет интент: '{audit_kw}'.
 elif st.session_state.active_tab.startswith("🌐 Link Checker"):
     with st.container(border=True):
         st.markdown(f"#### 🌐 Мониторинг бэклинков ({selected_product.upper()})")
-        st.caption("Добавьте единичную ссылку или загрузите CSV/TXT файл со списком URL для массовой проверки.")
+        st.caption("Добавьте единичную ссылку или загрузите файл со списком URL для проверки.")
         
         target_domain_query = st.text_input("Ваш домен для поиска в ссылках", value="pics.io" if selected_product == "pics.io" else "toriut.com")
         
@@ -481,7 +481,7 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
         
         urls_to_process = []
         with tab_single:
-            single_url = st.text_input("URL страницы с бэклинком", placeholder="https://example.com/guest-post-review")
+            single_url = st.text_input("URL страницы с бэклинком", placeholder="https://example.com/guest-post-review", key="single_link_input")
             if st.button("Проверить и сохранить", type="primary"):
                 if single_url.strip():
                     urls_to_process = [single_url.strip()]
@@ -559,34 +559,82 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                 
                 bar.progress((idx + 1) / len(urls_to_process))
                 
-            st.success(f"Готово! Обработано и проверено ссылок: {success_cnt} из {len(urls_to_process)}")
+            st.success(f"Готово! Проверено ссылок: {success_cnt} из {len(urls_to_process)}")
             st.rerun()
 
         st.divider()
         
-        # Загружаем сохраненные ссылки для текущего продукта
+        # Красивый вывод с пагинацией и бейджами
         try:
             get_links_url = f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}&order=checked_at.desc"
             r_links = requests.get(get_links_url, headers=get_supabase_headers(), timeout=8)
             if r_links.status_code == 200:
                 links_data = r_links.json()
                 if links_data:
-                    df_links = pd.DataFrame(links_data)
-                    st.dataframe(df_links[["checked_at", "page_url", "http_status", "link_attribute"]], use_container_width=True, hide_index=True)
+                    st.markdown("#### 📋 База бэклинков и их статус")
                     
+                    # Настройка пагинации (по 10 штук на страницу)
+                    items_per_page = 10
+                    total_items = len(links_data)
+                    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+                    
+                    col_p1, col_p2 = st.columns([2, 1])
+                    with col_p2:
+                        current_page = st.number_input("Страница", min_value=1, max_value=total_pages, value=1, step=1)
+                    
+                    start_idx = (current_page - 1) * items_per_page
+                    end_idx = start_idx + items_per_page
+                    page_data = links_data[start_idx:end_idx]
+                    
+                    with col_p1:
+                        st.caption( показано с {start_idx + 1} по {min(total_items, end_idx)} из {total_items} бэклинков)
+
+                    # Рендерим красивые карточки вместо плоской таблицы
+                    for row in page_data:
+                        checked_time = row.get("checked_at", "").replace("T", " ")[:19]
+                        p_url = row.get("page_url", "#")
+                        h_status = row.get("http_status", 0)
+                        l_attr = row.get("link_attribute", "Unknown")
+                        
+                        # Определяем цвет бейджа статуса
+                        if h_status == 200:
+                            status_badge = f"<span class='badge-green'>HTTP {h_status}</span>"
+                        else:
+                            status_badge = f"<span class='badge-red'>HTTP {h_status}</span>"
+                            
+                        # Бейдж атрибута ссылки
+                        if l_attr == "dofollow":
+                            attr_badge = f"<span class='badge-green'>{l_attr}</span>"
+                        elif l_attr == "nofollow":
+                            attr_badge = f"<span class='badge-yellow'>{l_attr}</span>"
+                        else:
+                            attr_badge = f"<span class='badge-red'>{l_attr}</span>"
+
+                        with st.container(border=True):
+                            c_u, c_s, c_a, c_t = st.columns([3, 1, 1, 1.2])
+                            with c_u:
+                                st.markdown(f"🔗 [{p_url}]({p_url})", unsafe_allow_html=True)
+                            with c_s:
+                                st.markdown(status_badge, unsafe_allow_html=True)
+                            with c_a:
+                                st.markdown(attr_badge, unsafe_allow_html=True)
+                            with c_t:
+                                st.markdown(f"<span style='opacity:0.6; font-size:0.85em;'>{checked_time}</span>", unsafe_allow_html=True)
+
+                    st.write("")
+                    df_links = pd.DataFrame(links_data)
                     csv_data = df_links.to_csv(index=False).encode('utf-8')
                     st.download_button(
-                        label="📥 Экспорт в CSV файл",
+                        label="📥 Экспорт всех бэклинков в CSV",
                         data=csv_data,
                         file_name=f"link_checker_{selected_product}.csv",
                         mime="text/csv",
                         type="primary"
                     )
                 else:
-                    st.info(f"Список бэклинков для {selected_product.upper()} пуст.")
+                    st.info(f"Список бэклинков для {selected_product.upper()} пока пуст.")
         except Exception:
             st.info("База бэклинков пока недоступна.")
-
 # 3. DATA MANAGER
 elif st.session_state.active_tab.startswith("⚙️ Data"):
     col_maps, col_playbooks = st.columns([1, 1])
