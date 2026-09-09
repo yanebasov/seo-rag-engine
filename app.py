@@ -228,13 +228,11 @@ def resolve_models(api_key):
             if not embed_m and embed_cands: embed_m = embed_cands[0]
 
             gen_m = None
-            # Адаптация под новые модели 2026 года
             for pref in ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.0-flash", "gemini-2.5-flash"]:
                 for c in gen_cands:
                     if pref in c: gen_m = c; break
                 if gen_m: break
             
-            # Если не нашли по префиксу, берем любую flash (игнорируем lite, если возможно)
             if not gen_m:
                 for c in gen_cands:
                     if "flash" in c and "lite" not in c.lower(): gen_m = c; break
@@ -467,7 +465,7 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
                                 save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
 
 
-# 2. GAP AUDIT
+# 2. GAP AUDIT (ТАБЛИЦА ВНИЗУ, ТЕКСТ ВЕРНУЛСЯ)
 elif st.session_state.active_tab.startswith("📊 Gap"):
     st.info("💡 **Как это работает:** Введите поисковый запрос (интент), под который планируете писать. Система просканирует базу знаний и покажет Score (покрытие фактами). Если покрытие слабое — создаст ТЗ для автора.")
     
@@ -513,36 +511,56 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
 {facts_text}
 Ближайшие существующие URL: {pages_text}
 
-Тебе нужно вернуть СТРОГО валидный JSON-массив объектов. Никакого текста до или после. Ключи:
+Твоя задача — дать ответ из ДВУХ частей, разделенных ровно строкой "===MATRIX===".
+
+ЧАСТЬ 1 (Аналитика текста):
+Напиши развернутый анализ в формате Markdown:
+1. 🎯 Вердикт по интенту: Насколько текущая база закрывает боль пользователя?
+2. 🚨 Слепые зоны: Чего критически не хватает?
+3. 🛠 Actionable Advice: Что конкретно нужно сделать с контентом.
+
+===MATRIX===
+
+ЧАСТЬ 2 (JSON таблица):
+Верни СТРОГО валидный JSON-массив объектов. Никакого текста, только массив. Ключи:
 "sub_topic" (строка, название подтемы),
 "status" (строка, "Есть в базе" или "Слепая зона"),
 "recommendation" (строка, что конкретно написать),
 "target_url" (строка, URL из ближайших или 'Новая страница'),
-"business_value" (строка, кратко: какую выгоду/ROI принесет бизнесу покрытие этой темы?)
+"business_value" (строка, выгода/ROI).
 """
-                raw_matrix = generate_llm(matrix_prompt, temperature=0.1)
-                clean_json = clean_json_string(raw_matrix)
+                raw_ans = generate_llm(matrix_prompt, temperature=0.1)
+                
+                # Парсинг двойного ответа
+                if "===MATRIX===" in raw_ans:
+                    strat_text, raw_json = raw_ans.split("===MATRIX===", 1)
+                elif "```json" in raw_ans:
+                    parts = raw_ans.split("```json", 1)
+                    strat_text = parts[0].strip()
+                    raw_json = "```json\n" + parts[1]
+                else:
+                    strat_text = raw_ans
+                    raw_json = "[]"
+                    
+                clean_json = clean_json_string(raw_json)
                 
                 st.session_state.gap_dash_html = dash_html
+                st.session_state.gap_strategy_text = strat_text.strip()
                 st.session_state.gap_matrix = clean_json
                 st.session_state.gap_kw = audit_kw
                 st.session_state.gap_active = True
 
         if st.session_state.get("gap_active"):
+            # 1. Дашборд
             st.markdown(st.session_state.gap_dash_html, unsafe_allow_html=True)
             
-            try:
-                matrix_data = json.loads(st.session_state.gap_matrix)
-                st.markdown("#### 📊 Матрица контента и ROI")
-                st.caption("Данные подготовлены для защиты контент-плана перед Тимлидом/Менеджером.")
-                df_matrix = pd.DataFrame(matrix_data)
-                st.dataframe(df_matrix, hide_index=True, use_container_width=True)
-            except Exception as e:
-                st.error("Сбой генерации матрицы (LLM не вернула JSON).")
-                st.code(st.session_state.gap_matrix)
+            # 2. Живой текст стратега (который ты просил вернуть)
+            st.markdown("#### 🕵️ Пруфы аудита (Стратегия)")
+            st.info(st.session_state.gap_strategy_text)
 
             st.divider()
             
+            # 3. Кнопка генерации ТЗ
             if st.button("📝 Создать Jira-ready ТЗ копирайтеру", type="primary"):
                 with st.spinner("Генерация ТЗ..."):
                     brief_prompt = f"""Сгенерируй детальное ТЗ для копирайтера под запрос '{st.session_state.gap_kw}' на основе матрицы пробелов:
@@ -560,6 +578,19 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
                     st.markdown("#### 📋 Готовый тикет (ТЗ)")
                     st.markdown(brief)
                     st.download_button("📥 Скачать ТЗ (.md)", data=brief, file_name=f"Jira_Task_{st.session_state.gap_kw.replace(' ','_')}.md", mime="text/markdown")
+
+            st.divider()
+
+            # 4. Таблица в самом низу
+            try:
+                matrix_data = json.loads(st.session_state.gap_matrix)
+                if matrix_data:
+                    st.markdown("#### 📊 Матрица контента и ROI")
+                    st.caption("Детализация контент-плана по сущностям (для Тимлида/Менеджера).")
+                    df_matrix = pd.DataFrame(matrix_data)
+                    st.dataframe(df_matrix, hide_index=True, use_container_width=True)
+            except Exception as e:
+                st.warning("Таблица матрицы не сгенерировалась (LLM вернула нестандартный формат).")
 
     with tab_batch:
         with st.container(border=True):
