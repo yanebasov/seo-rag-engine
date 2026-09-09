@@ -26,6 +26,9 @@ SUPABASE_URL = get_secret("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 DEFAULT_GEMINI_KEY = get_secret("GEMINI_API_KEY", "")
 
+# Разбиваем строку, чтобы предотвратить баг с гиперссылками при копировании
+GEMINI_API_BASE = "https" + "://generativelanguage.googleapis.com/v1beta/models"
+
 # Авторизация
 AUTH_USERS = {"slava": "slava2026", "teamlead": "picslead2026"}
 if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
@@ -198,18 +201,19 @@ with st.sidebar:
         if st.button(item, key=f"nav_{item}", use_container_width=True, type=btn_type):
             st.session_state.active_tab = item
             if "edit_link_id" in st.session_state: st.session_state.edit_link_id = None
+            if "gap_active" in st.session_state: st.session_state.gap_active = False 
             st.rerun()
     
     st.divider()
     gemini_key_input = st.text_input("Gemini API Key", value=DEFAULT_GEMINI_KEY, type="password")
     CURRENT_KEY = gemini_key_input.strip().strip("'").strip('"')
 
-# --- ЖЕЛЕЗОБЕТОННЫЙ РЕЗОЛВЕР МОДЕЛЕЙ ---
+# --- ЖЕЛЕЗОБЕТОННЫЙ РЕЗОЛВЕР МОДЕЛЕЙ И API ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def resolve_models(api_key):
     if not api_key: return None, None, "Укажите Gemini API Key"
     try:
-        url = f"[https://generativelanguage.googleapis.com/v1beta/models?key=](https://generativelanguage.googleapis.com/v1beta/models?key=){api_key}"
+        url = f"{GEMINI_API_BASE}?key={api_key}"
         res = requests.get(url, timeout=6)
         if res.status_code == 200:
             models_data = res.json().get("models", [])
@@ -239,7 +243,8 @@ def get_embedding(text: str):
     if not CURRENT_KEY or not EMBED_MODEL: return None
     clean_model = EMBED_MODEL.replace('models/', '')
     try:
-        res = requests.post(f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){clean_model}:embedContent?key={CURRENT_KEY}", json={"content": {"parts": [{"text": text}]}}, timeout=10)
+        url = f"{GEMINI_API_BASE}/{clean_model}:embedContent?key={CURRENT_KEY}"
+        res = requests.post(url, json={"content": {"parts": [{"text": text}]}}, timeout=10)
         if res.status_code == 200: return res.json()["embedding"]["values"][:768]
     except: pass
     return None
@@ -248,7 +253,8 @@ def generate_llm(prompt: str, temperature: float = 0.2):
     if not CURRENT_KEY or not GEN_MODEL: return "Ошибка: API Key."
     clean_model = GEN_MODEL.replace('models/', '')
     try:
-        res = requests.post(f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){clean_model}:generateContent?key={CURRENT_KEY}", json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temperature}}, timeout=30)
+        url = f"{GEMINI_API_BASE}/{clean_model}:generateContent?key={CURRENT_KEY}"
+        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": temperature}}, timeout=30)
         if res.status_code == 200: return res.json()["candidates"][0]["content"]["parts"][0]["text"]
         return f"⚠️ Ошибка ({res.status_code}): {res.json().get('error', {}).get('message', '')}"
     except Exception as e: return f"⚠️ Ошибка: {e}"
@@ -286,6 +292,12 @@ def get_content_history(product: str):
     except: pass
     return []
 
+def shorten_url(url, max_len=30):
+    if not url or str(url) == "#" or str(url).lower() == "none": return "—"
+    clean = str(url).replace("https://", "").replace("http://", "").replace("www.", "")
+    if len(clean) > max_len: return clean[:max_len] + "..."
+    return clean
+
 def check_link_status(page_url, target_url, target_keyword):
     status_code = 0
     attr_result = "Not Found"
@@ -322,7 +334,7 @@ def check_link_status(page_url, target_url, target_keyword):
 # --- MAIN CONTENT AREA ---
 st.title(st.session_state.active_tab.split(" (")[0])
 
-# 1. ГЕНЕРАЦИЯ + ДОКТОР (ПРОКАЧАННЫЙ)
+# 1. ГЕНЕРАЦИЯ + ДОКТОР
 if st.session_state.active_tab.startswith("✍️ Генерация"):
     if "gen_step" not in st.session_state: st.session_state.gen_step = 0
     if "gen_facts" not in st.session_state: st.session_state.gen_facts = []
@@ -427,7 +439,6 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
                                 
                                 if "PASS" in doc_verdict.upper() and "FAIL" not in doc_verdict.upper():
                                     st.markdown(f"<div style='background-color:rgba(46,133,64,0.1); padding:10px; border-radius:6px; border-left: 4px solid #2E7D32;'>{doc_verdict}</div>", unsafe_allow_html=True)
-                                    # --- БИЗНЕС-ФИЧА: QA SIGN-OFF ДЛЯ ТИМЛИДА ---
                                     st.markdown(f"<div class='qa-box'><b>🛡️ Quality Assurance:</b><br>Текст проверен нейросетью и верифицирован специалистом <b>@{st.session_state['username']}</b>. <br>✅ Готово к публикации.</div>", unsafe_allow_html=True)
                                 else:
                                     st.markdown(f"<div style='background-color:rgba(239,68,68,0.1); padding:10px; border-radius:6px; border-left: 4px solid #DC2626;'>{doc_verdict}</div>", unsafe_allow_html=True)
@@ -436,9 +447,9 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
                                 save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
 
 
-# 2. GAP AUDIT (ПРОКАЧАННЫЙ)
+# 2. GAP AUDIT
 elif st.session_state.active_tab.startswith("📊 Gap"):
-    st.info("💡 **Как это работает:** Введите поисковый запрос (интент), под который планируете писать. Система просканирует базу знаний и покажет Score (покрытие фактами). Если фактов нет, система сгенерирует бизнес-обоснование для лида и ТЗ для копирайтера.")
+    st.info("💡 **Как это работает:** Введите поисковый запрос (интент), под который планируете писать. Система просканирует базу знаний и покажет Score (покрытие фактами). Если покрытие слабое — создаст ТЗ для автора.")
     
     tab_single, tab_batch = st.tabs(["🔍 Одиночный аудит", "📁 Массовый аудит (Batch)"])
     
@@ -448,41 +459,37 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
             audit_kw = st.text_input("Поисковый запрос на слепые зоны", value=default_audit)
             run_audit = st.button("Провести аудит", type="primary")
 
+        # БЛОК РАСЧЕТОВ 
         if run_audit:
             with st.spinner("Векторный анализ базы..."):
                 audit_facts = retrieve_facts(audit_kw, selected_product, top_k=4, threshold=0.0)
                 pages_to_update = retrieve_linking_pages(audit_kw, selected_product, top_k=3)
                 
-                if audit_facts:
-                    best_sc = audit_facts[0].get("similarity", 0)
-                    p_score = int(best_sc * 100)
-                    if p_score > 100: p_score = 100
-                    
-                    if p_score >= 65: color, text_s = "#10B981", "Отличное покрытие"
-                    elif p_score >= 45: color, text_s = "#F59E0B", "Среднее покрытие"
-                    else: color, text_s = "#EF4444", "Слепая зона"
+                best_sc = audit_facts[0].get("similarity", 0) if audit_facts else 0
+                p_score = int(best_sc * 100)
+                if p_score > 100: p_score = 100
+                
+                if p_score >= 65: color, text_s = "#10B981", "Отличное покрытие"
+                elif p_score >= 45: color, text_s = "#F59E0B", "Среднее покрытие"
+                else: color, text_s = "#EF4444", "Слепая зона"
 
-                    # Спидометр
-                    dash_html = f"""
-                    <div style="display:flex; justify-content: center; margin-bottom: 20px;">
-                        <div style="position:relative; width:180px; height:90px; overflow:hidden;">
-                            <div style="width:180px; height:180px; border-radius:50%; background: conic-gradient({color} {p_score/2}%, rgba(128,128,128,0.2) 0); transform: rotate(-90deg);"></div>
-                            <div style="position:absolute; top:15px; left:15px; width:150px; height:150px; border-radius:50%; background-color: var(--background-color, #ffffff);"></div>
-                            <div style="position:absolute; top:40px; left:0; width:100%; text-align:center; color: var(--text-color);">
-                                <span style="font-size:32px; font-weight:bold;">{p_score}%</span><br>
-                                <span style="font-size:12px; font-weight:bold; color:{color};">{text_s}</span>
-                            </div>
+                dash_html = f"""
+                <div style="display:flex; justify-content: center; margin-bottom: 20px;">
+                    <div style="position:relative; width:180px; height:90px; overflow:hidden;">
+                        <div style="width:180px; height:180px; border-radius:50%; background: conic-gradient({color} {p_score/2}%, rgba(128,128,128,0.2) 0); transform: rotate(-90deg);"></div>
+                        <div style="position:absolute; top:15px; left:15px; width:150px; height:150px; border-radius:50%; background-color: var(--background-color, #ffffff); opacity: 0.05;"></div> 
+                        <div style="position:absolute; top:40px; left:0; width:100%; text-align:center; color: var(--text-color);">
+                            <span style="font-size:32px; font-weight:bold;">{p_score}%</span><br>
+                            <span style="font-size:12px; font-weight:bold; color:{color};">{text_s}</span>
                         </div>
                     </div>
-                    """
-                    st.markdown(dash_html, unsafe_allow_html=True)
-                    
-                    # Матрица контента с Бизнес-обоснованием
-                    with st.spinner("AI-стратег формирует матрицу и бизнес-обоснование..."):
-                        facts_text = "".join([f"- {af.get('claim','')}\n" for af in audit_facts])
-                        pages_text = "".join([f"- {pu.get('url', '')}\n" for pu in pages_to_update])
-                        
-                        matrix_prompt = f"""Проанализируй интент '{audit_kw}' для продукта '{selected_product}'.
+                </div>
+                """
+                
+                facts_text = "".join([f"- {af.get('claim','')}\n" for af in audit_facts]) if audit_facts else "Фактов в базе НЕТ."
+                pages_text = "".join([f"- {pu.get('url', '')}\n" for pu in pages_to_update]) if pages_to_update else "Релевантных страниц НЕТ."
+                
+                matrix_prompt = f"""Проанализируй интент '{audit_kw}' для продукта '{selected_product}'.
 Найденные фрагменты в базе:
 {facts_text}
 Ближайшие существующие URL: {pages_text}
@@ -492,27 +499,32 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
 "status" (строка, "Есть в базе" или "Слепая зона"),
 "recommendation" (строка, что конкретно написать),
 "target_url" (строка, URL из ближайших или 'Новая страница'),
-"business_value" (строка, кратко: какую выгоду/ROI принесет бизнесу покрытие этой темы? Как это поможет конверсии или трафику?)
+"business_value" (строка, кратко: какую выгоду/ROI принесет бизнесу покрытие этой темы?)
 """
-                        raw_matrix = generate_llm(matrix_prompt, temperature=0.1)
-                        clean_json = clean_json_string(raw_matrix)
-                        
-                        try:
-                            matrix_data = json.loads(clean_json)
-                            st.markdown("#### 📊 Матрица контента и ROI")
-                            st.caption("Данные подготовлены для защиты контент-плана перед Тимлидом/Менеджером.")
-                            df_matrix = pd.DataFrame(matrix_data)
-                            st.dataframe(df_matrix, hide_index=True, use_container_width=True)
-                            
-                            st.session_state.gap_matrix = clean_json
-                            st.session_state.gap_kw = audit_kw
-                        except Exception as e:
-                            st.error("Сбой генерации матрицы (LLM не вернула JSON).")
-                            st.code(clean_json)
+                raw_matrix = generate_llm(matrix_prompt, temperature=0.1)
+                clean_json = clean_json_string(raw_matrix)
+                
+                st.session_state.gap_dash_html = dash_html
+                st.session_state.gap_matrix = clean_json
+                st.session_state.gap_kw = audit_kw
+                st.session_state.gap_active = True
 
-        # Генератор Jira-ready ТЗ
-        if st.session_state.get("gap_matrix"):
+        # БЛОК ОТРИСОВКИ РЕЗУЛЬТАТОВ
+        if st.session_state.get("gap_active"):
+            st.markdown(st.session_state.gap_dash_html, unsafe_allow_html=True)
+            
+            try:
+                matrix_data = json.loads(st.session_state.gap_matrix)
+                st.markdown("#### 📊 Матрица контента и ROI")
+                st.caption("Данные подготовлены для защиты контент-плана перед Тимлидом/Менеджером.")
+                df_matrix = pd.DataFrame(matrix_data)
+                st.dataframe(df_matrix, hide_index=True, use_container_width=True)
+            except Exception as e:
+                st.error("Сбой генерации матрицы (LLM не вернула JSON).")
+                st.code(st.session_state.gap_matrix)
+
             st.divider()
+            
             if st.button("📝 Создать Jira-ready ТЗ копирайтеру", type="primary"):
                 with st.spinner("Генерация ТЗ..."):
                     brief_prompt = f"""Сгенерируй детальное ТЗ для копирайтера под запрос '{st.session_state.gap_kw}' на основе матрицы пробелов:
@@ -551,7 +563,7 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
                     bar.progress((i+1)/len(kws))
                 st.dataframe(pd.DataFrame(results).sort_values(by="Score"), hide_index=True, use_container_width=True)
 
-# 3. LINK CHECKER (ENTERPRISE DASHBOARD)
+# 3. LINK CHECKER
 elif st.session_state.active_tab.startswith("🌐 Link Checker"):
     with st.container(border=True):
         st.markdown(f"#### 🌐 Мониторинг бэклинков ({selected_product.upper()})")
