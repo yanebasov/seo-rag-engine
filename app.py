@@ -93,8 +93,8 @@ def get_score_badge(score):
     else: return f"<span class='badge-red'>Score: {score:.2f}</span>"
 
 def shorten_url(url, max_len=30):
-    if not url or url == "#" or url == "None": return "—"
-    clean = url.replace("https://", "").replace("http://", "").replace("www.", "")
+    if not url or str(url) == "#" or str(url).lower() == "none": return "—"
+    clean = str(url).replace("https://", "").replace("http://", "").replace("www.", "")
     if len(clean) > max_len: return clean[:max_len] + "..."
     return clean
 
@@ -252,13 +252,16 @@ def get_content_history(product: str):
 
 def check_link_status(page_url, target_url, target_keyword):
     """
-    Универсальная функция парсинга и проверки ссылки.
-    Ищет строгое соответствие URL и ключа, возвращает код и атрибут.
+    Универсальная функция парсинга. Защищена от None.
     """
     status_code = 0
     attr_result = "Not Found"
-    t_url_lower = target_url.lower().strip() if target_url and target_url != "#" else ""
-    t_kw_lower = target_keyword.lower().strip() if target_keyword and target_keyword != "—" else ""
+    
+    safe_t_url = str(target_url).lower().strip() if target_url else ""
+    safe_t_kw = str(target_keyword).lower().strip() if target_keyword else ""
+    
+    t_url_lower = safe_t_url if safe_t_url not in ["none", "#", "—", ""] else ""
+    t_kw_lower = safe_t_kw if safe_t_kw not in ["none", "#", "—", ""] else ""
     
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -274,9 +277,7 @@ def check_link_status(page_url, target_url, target_keyword):
                 href_val = a['href'].lower()
                 txt_val = a.get_text().strip().lower()
                 
-                # Если передан Target URL, проверяем его наличие. Если нет, то True
                 url_match = (t_url_lower in href_val) if t_url_lower else True
-                # Если передан Ключ, проверяем его наличие в анкоре ИЛИ в самом URL
                 kw_match = (t_kw_lower in txt_val or t_kw_lower in href_val) if t_kw_lower else True
                 
                 if url_match:
@@ -287,11 +288,8 @@ def check_link_status(page_url, target_url, target_keyword):
                         attr_result = "nofollow" if 'nofollow' in rel_vals else "dofollow"
                         break
             
-            if not found_url:
-                attr_result = "Link Missing"
-            elif found_url and not found_exact:
-                attr_result = "Wrong Anchor"
-                
+            if not found_url: attr_result = "Link Missing"
+            elif found_url and not found_exact: attr_result = "Wrong Anchor"
         else:
             attr_result = f"HTTP Error {status_code}"
     except Exception:
@@ -417,7 +415,14 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
             for idx, (url_to_check, target_url, target_brand) in enumerate(queue_to_process):
                 status_code, attr_result = check_link_status(url_to_check, target_url, target_brand)
                 
-                payload = {"product": selected_product, "page_url": url_to_check, "target_url": target_url, "target_keyword": target_brand, "http_status": status_code, "link_attribute": attr_result}
+                payload = {
+                    "product": selected_product, 
+                    "page_url": url_to_check, 
+                    "target_url": target_url, 
+                    "target_keyword": target_brand, 
+                    "http_status": status_code, 
+                    "link_attribute": attr_result
+                }
                 try:
                     requests.post(f"{SUPABASE_URL}/rest/v1/link_checker", headers=get_supabase_headers(), json=payload, timeout=5)
                     success_cnt += 1
@@ -428,7 +433,6 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
 
         st.divider()
         
-        # Кнопка для массовой перепроверки всей БД
         if st.button("🔄 Перепроверить всю базу ссылок (Авто-парсинг)", type="primary"):
             try:
                 r_all = requests.get(f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}", headers=get_supabase_headers(), timeout=10)
@@ -448,7 +452,8 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
         
         try:
             get_links_url = f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}&order=checked_at.desc"
-            r_links = requests.get(get_links_url, headers=get_supabase_headers(), timeout=8)
+            r_links = requests.get(get_links_url, headers=get_supabase_headers(), timeout=10)
+            
             if r_links.status_code == 200:
                 links_data = r_links.json()
                 if links_data:
@@ -478,66 +483,81 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     st.divider()
 
                     for row in page_data:
-                        row_id = row.get("id")
-                        checked_time = row.get("checked_at", "").replace("T", " ")[:16]
-                        p_url = row.get("page_url", "#")
-                        t_url = row.get("target_url", "#") if row.get("target_url") and row.get("target_url") != "None" else "#"
-                        t_kw = row.get("target_keyword") if row.get("target_keyword") and row.get("target_keyword") != "None" else "—"
-                        
-                        if st.session_state.edit_link_id == row_id:
-                            # РЕЖИМ РЕДАКТИРОВАНИЯ
-                            with st.container(border=True):
-                                col_e1, col_e2, col_e3 = st.columns(3)
-                                new_p_url = col_e1.text_input("URL статьи", value=p_url, key=f"ep_{row_id}")
-                                new_t_url = col_e2.text_input("Target URL", value="" if t_url == "#" else t_url, key=f"et_{row_id}")
-                                new_kw = col_e3.text_input("Ключ", value="" if t_kw == "—" else t_kw, key=f"ek_{row_id}")
-                                
-                                ce_1, ce_2, _ = st.columns([1.5, 1.5, 5])
-                                if ce_1.button("💾 Сохранить и парсить", key=f"save_{row_id}", type="primary"):
-                                    s_code, a_res = check_link_status(new_p_url, new_t_url, new_kw)
-                                    payload = {"page_url": new_p_url, "target_url": new_t_url, "target_keyword": new_kw, "http_status": s_code, "link_attribute": a_res}
-                                    try:
-                                        requests.patch(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}", headers=get_supabase_headers(), json=payload)
-                                    except: pass
-                                    st.session_state.edit_link_id = None
-                                    st.rerun()
-                                if ce_2.button("Отмена", key=f"cancel_{row_id}"):
-                                    st.session_state.edit_link_id = None
-                                    st.rerun()
-                        else:
-                            # РЕЖИМ ПРОСМОТРА
-                            h_status = row.get("http_status", 0)
-                            l_attr = row.get("link_attribute", "Unknown")
+                        try:
+                            row_id = row.get("id")
                             
-                            # Логика Live/Dead
-                            if h_status == 200 and l_attr in ["dofollow", "nofollow"]: live_badge = "<span class='badge-green'>🟢 Live</span>"
-                            else: live_badge = "<span class='badge-red'>🔴 Dead</span>"
-
-                            status_badge = f"<span class='badge-green'>HTTP {h_status}</span>" if h_status == 200 else f"<span class='badge-red'>HTTP {h_status}</span>"
-                            attr_badge = f"<span class='badge-green'>{l_attr}</span>" if l_attr == "dofollow" else (f"<span class='badge-yellow'>{l_attr}</span>" if l_attr == "nofollow" else f"<span class='badge-red'>{l_attr}</span>")
-
-                            with st.container(border=True):
-                                c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_act = st.columns([1.9, 1.9, 1.2, 0.7, 0.9, 0.9, 0.9, 1.3])
-                                c_u.markdown(f"[{shorten_url(p_url)}]({p_url})", unsafe_allow_html=True)
-                                c_tar.markdown(f"[{shorten_url(t_url)}]({t_url})", unsafe_allow_html=True)
-                                c_k.markdown(f"`{t_kw}`")
-                                c_l.markdown(live_badge, unsafe_allow_html=True)
-                                c_s.markdown(status_badge, unsafe_allow_html=True)
-                                c_a.markdown(attr_badge, unsafe_allow_html=True)
-                                c_t.markdown(f"<span style='opacity:0.6; font-size:0.8em;'>{checked_time}</span>", unsafe_allow_html=True)
+                            raw_checked = row.get("checked_at")
+                            checked_time = str(raw_checked).replace("T", " ")[:16] if raw_checked else "—"
+                            
+                            p_url = str(row.get("page_url") or "#")
+                            
+                            raw_t_url = row.get("target_url")
+                            t_url = str(raw_t_url) if raw_t_url else "#"
+                            if t_url.lower() == "none" or not t_url.strip(): t_url = "#"
                                 
-                                # Кнопки действий (Перепроверить, Редактировать, Удалить)
-                                ca1, ca2, ca3 = c_act.columns([1, 1, 1])
-                                if ca1.button("🔄", key=f"ref_{row_id}", help="Перепроверить статус сейчас"):
-                                    ns_code, na_res = check_link_status(p_url, t_url, t_kw)
-                                    requests.patch(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}", headers=get_supabase_headers(), json={"http_status": ns_code, "link_attribute": na_res})
-                                    st.rerun()
-                                if ca2.button("✏️", key=f"edit_btn_{row_id}", help="Редактировать"):
-                                    st.session_state.edit_link_id = row_id
-                                    st.rerun()
-                                if ca3.button("🗑️", key=f"del_link_{row_id}", help="Удалить из базы"):
-                                    requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}", headers=get_supabase_headers())
-                                    st.rerun()
+                            raw_kw = row.get("target_keyword")
+                            t_kw = str(raw_kw) if raw_kw else "—"
+                            if t_kw.lower() == "none" or not t_kw.strip(): t_kw = "—"
+                                
+                            if st.session_state.edit_link_id == row_id:
+                                # РЕЖИМ РЕДАКТИРОВАНИЯ
+                                with st.container(border=True):
+                                    col_e1, col_e2, col_e3 = st.columns(3)
+                                    new_p_url = col_e1.text_input("URL статьи", value=p_url, key=f"ep_{row_id}")
+                                    new_t_url = col_e2.text_input("Target URL", value="" if t_url == "#" else t_url, key=f"et_{row_id}")
+                                    new_kw = col_e3.text_input("Ключ", value="" if t_kw == "—" else t_kw, key=f"ek_{row_id}")
+                                    
+                                    ce_1, ce_2, _ = st.columns([1.5, 1.5, 5])
+                                    if ce_1.button("💾 Сохранить и парсить", key=f"save_{row_id}", type="primary"):
+                                        s_code, a_res = check_link_status(new_p_url, new_t_url, new_kw)
+                                        payload = {"page_url": new_p_url, "target_url": new_t_url, "target_keyword": new_kw, "http_status": s_code, "link_attribute": a_res}
+                                        try:
+                                            requests.patch(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}", headers=get_supabase_headers(), json=payload, timeout=5)
+                                            st.toast("Ссылка обновлена!")
+                                        except Exception as db_err:
+                                            st.error(f"Сбой БД: {db_err}")
+                                        st.session_state.edit_link_id = None
+                                        st.rerun()
+                                    if ce_2.button("❌ Отмена", key=f"cancel_{row_id}"):
+                                        st.session_state.edit_link_id = None
+                                        st.rerun()
+                            else:
+                                # РЕЖИМ ПРОСМОТРА
+                                h_status = row.get("http_status", 0)
+                                l_attr = str(row.get("link_attribute") or "Unknown")
+                                
+                                if h_status == 200 and l_attr in ["dofollow", "nofollow"]: live_badge = "<span class='badge-green'>🟢 Live</span>"
+                                else: live_badge = "<span class='badge-red'>🔴 Dead</span>"
+
+                                status_badge = f"<span class='badge-green'>HTTP {h_status}</span>" if h_status == 200 else f"<span class='badge-red'>HTTP {h_status}</span>"
+                                attr_badge = f"<span class='badge-green'>{l_attr}</span>" if l_attr == "dofollow" else (f"<span class='badge-yellow'>{l_attr}</span>" if l_attr == "nofollow" else f"<span class='badge-red'>{l_attr}</span>")
+
+                                short_p = shorten_url(p_url, 30)
+                                short_t = shorten_url(t_url, 30)
+
+                                with st.container(border=True):
+                                    c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_act = st.columns([1.9, 1.9, 1.2, 0.7, 0.9, 0.9, 0.9, 1.3])
+                                    c_u.markdown(f"[{short_p}]({p_url})", unsafe_allow_html=True)
+                                    c_tar.markdown(f"[{short_t}]({t_url})", unsafe_allow_html=True)
+                                    c_k.markdown(f"`{t_kw}`")
+                                    c_l.markdown(live_badge, unsafe_allow_html=True)
+                                    c_s.markdown(status_badge, unsafe_allow_html=True)
+                                    c_a.markdown(attr_badge, unsafe_allow_html=True)
+                                    c_t.markdown(f"<span style='opacity:0.6; font-size:0.8em;'>{checked_time}</span>", unsafe_allow_html=True)
+                                    
+                                    ca1, ca2, ca3 = c_act.columns([1, 1, 1])
+                                    if ca1.button("🔄", key=f"ref_{row_id}", help="Перепроверить статус сейчас"):
+                                        ns_code, na_res = check_link_status(p_url, t_url, t_kw)
+                                        requests.patch(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}", headers=get_supabase_headers(), json={"http_status": ns_code, "link_attribute": na_res}, timeout=5)
+                                        st.rerun()
+                                    if ca2.button("✏️", key=f"edit_btn_{row_id}", help="Редактировать"):
+                                        st.session_state.edit_link_id = row_id
+                                        st.rerun()
+                                    if ca3.button("🗑️", key=f"del_link_{row_id}", help="Удалить из базы"):
+                                        requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}", headers=get_supabase_headers(), timeout=5)
+                                        st.rerun()
+                        except Exception as row_err:
+                            st.error(f"Сбой при отображении ссылки. Запись пропущена.")
 
                     if total_pages > 1:
                         st.write("")
@@ -551,7 +571,10 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     st.download_button("📥 Экспорт в CSV", data=pd.DataFrame(links_data).to_csv(index=False).encode('utf-8'), file_name=f"link_checker_{selected_product}.csv", mime="text/csv", type="primary")
                 else:
                     st.info(f"Список бэклинков для {selected_product.upper()} пока пуст.")
-        except: st.info("База бэклинков пока недоступна.")
+            else:
+                st.error(f"Ошибка загрузки базы. Код сервера: {r_links.status_code}")
+        except Exception as e:
+            st.error(f"Сервер БД временно недоступен: {e}")
 
 # 3. DATA MANAGER
 elif st.session_state.active_tab.startswith("⚙️ Data"):
