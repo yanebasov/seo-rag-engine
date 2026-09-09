@@ -40,6 +40,10 @@ if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
 
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯", initial_sidebar_state="expanded")
 
+# Инициализация состояния для редактирования ссылок
+if "edit_link_id" not in st.session_state:
+    st.session_state.edit_link_id = None
+
 # --- CUSTOM CSS (Adaptive SaaS Navigation & Branding) ---
 st.markdown("""
 <style>
@@ -80,6 +84,10 @@ st.markdown("""
     [data-testid="stSidebar"] [data-testid="stImage"] img {
         border-radius: 16px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    }
+    /* Для кнопок действий в строке */
+    .action-btn {
+        padding: 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -174,6 +182,7 @@ with st.sidebar:
         btn_type = "primary" if st.session_state.active_tab == item else "secondary"
         if st.button(item, key=f"nav_{item}", use_container_width=True, type=btn_type):
             st.session_state.active_tab = item
+            st.session_state.edit_link_id = None # Сброс режима редактирования при смене вкладки
             st.rerun()
     
     st.divider()
@@ -609,10 +618,8 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     total_items = len(links_data)
                     total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
                     
-                    # Инициализация страницы в session_state
                     if "link_checker_page" not in st.session_state:
                         st.session_state.link_checker_page = 1
-                    
                     if st.session_state.link_checker_page > total_pages:
                         st.session_state.link_checker_page = total_pages
 
@@ -622,8 +629,8 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     
                     st.caption(f"Показано с {start_idx + 1} по {min(total_items, end_idx)} из {total_items} бэклинков")
 
-                    # Шапка-легенда табличного вида без иконок
-                    head_cols = st.columns([2, 2, 1.2, 0.7, 0.9, 0.9, 1, 0.4])
+                    # Шапка таблицы
+                    head_cols = st.columns([1.9, 1.9, 1.2, 0.7, 0.9, 0.9, 0.9, 0.8])
                     head_cols[0].markdown("**Статья**")
                     head_cols[1].markdown("**Цель**")
                     head_cols[2].markdown("**Ключ**")
@@ -639,60 +646,122 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                         checked_time = row.get("checked_at", "").replace("T", " ")[:19]
                         p_url = row.get("page_url", "#")
                         t_url = row.get("target_url", "#")
-                        if not t_url or t_url == "None":
-                            t_url = "#"
+                        if not t_url or t_url == "None": t_url = "#"
                         t_kw = row.get("target_keyword")
-                        if not t_kw or t_kw == "None":
-                            t_kw = "—"
+                        if not t_kw or t_kw == "None": t_kw = "—"
                             
-                        h_status = row.get("http_status", 0)
-                        l_attr = row.get("link_attribute", "Unknown")
-                        
-                        if h_status == 200 and l_attr not in ["Not Found", "Link Missing", "Error"] and not str(l_attr).startswith("HTTP"):
-                            live_badge = "<span class='badge-green'>Live</span>"
-                        else:
-                            live_badge = "<span class='badge-red'>Dead</span>"
-
-                        if h_status == 200:
-                            status_badge = f"<span class='badge-green'>HTTP {h_status}</span>"
-                        else:
-                            status_badge = f"<span class='badge-red'>HTTP {h_status}</span>"
-                            
-                        if l_attr == "dofollow":
-                            attr_badge = f"<span class='badge-green'>{l_attr}</span>"
-                        elif l_attr == "nofollow":
-                            attr_badge = f"<span class='badge-yellow'>{l_attr}</span>"
-                        else:
-                            attr_badge = f"<span class='badge-red'>{l_attr}</span>"
-
-                        short_p = shorten_url(p_url, 30)
-                        short_t = shorten_url(t_url, 30)
-
-                        with st.container(border=True):
-                            c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_d = st.columns([2, 2, 1.2, 0.7, 0.9, 0.9, 1, 0.4])
-                            with c_u:
-                                st.markdown(f"[{short_p}]({p_url})", unsafe_allow_html=True)
-                            with c_tar:
-                                st.markdown(f"[{short_t}]({t_url})", unsafe_allow_html=True)
-                            with c_k:
-                                st.markdown(f"`{t_kw}`")
-                            with c_l:
-                                st.markdown(live_badge, unsafe_allow_html=True)
-                            with c_s:
-                                st.markdown(status_badge, unsafe_allow_html=True)
-                            with c_a:
-                                st.markdown(attr_badge, unsafe_allow_html=True)
-                            with c_t:
-                                st.markdown(f"<span style='opacity:0.6; font-size:0.8em;'>{checked_time}</span>", unsafe_allow_html=True)
-                            with c_d:
-                                if st.button("🗑️", key=f"del_link_{row_id}", help="Удалить из базы"):
-                                    del_url = f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}"
+                        if st.session_state.edit_link_id == row_id:
+                            # --- РЕЖИМ РЕДАКТИРОВАНИЯ ---
+                            with st.container(border=True):
+                                st.markdown(f"**Редактирование ссылки (ID: {row_id})**")
+                                col_e1, col_e2, col_e3 = st.columns(3)
+                                new_p_url = col_e1.text_input("URL статьи", value=p_url, key=f"edit_p_{row_id}")
+                                new_t_url = col_e2.text_input("Цель", value=t_url if t_url != "#" else "", key=f"edit_t_{row_id}")
+                                new_kw = col_e3.text_input("Ключ", value=t_kw if t_kw != "—" else "", key=f"edit_k_{row_id}")
+                                
+                                ce_1, ce_2 = st.columns([1, 6])
+                                if ce_1.button("💾 Сохранить", key=f"save_{row_id}", type="primary"):
+                                    # Повторная проверка
+                                    s_code = 0
+                                    a_res = "Not Found"
+                                    t_b_low = new_kw.lower()
+                                    t_u_low = new_t_url.lower()
                                     try:
-                                        requests.delete(del_url, headers=get_supabase_headers(), timeout=5)
-                                        st.toast("Ссылка удалена!")
-                                        st.rerun()
+                                        res = requests.get(new_p_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+                                        s_code = res.status_code
+                                        if s_code == 200:
+                                            s = BeautifulSoup(res.text, 'html.parser')
+                                            fnd = False
+                                            for a in s.find_all('a', href=True):
+                                                h_val = a['href'].lower()
+                                                t_val = a.get_text().lower()
+                                                if (t_u_low in h_val) or (t_b_low in h_val) or (t_b_low in t_val):
+                                                    fnd = True
+                                                    a_res = "nofollow" if 'nofollow' in [r.lower() for r in a.get('rel', [])] else "dofollow"
+                                                    break
+                                            if not fnd: a_res = "Link Missing"
+                                        else: a_res = f"HTTP Error {s_code}"
+                                    except Exception:
+                                        s_code = 0
+                                        a_res = "Error"
+                                    
+                                    # Сохранение патчем
+                                    patch_url = f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}"
+                                    headers_db = get_supabase_headers()
+                                    headers_db["Prefer"] = "return=minimal"
+                                    payload = {
+                                        "page_url": new_p_url,
+                                        "target_url": new_t_url,
+                                        "target_keyword": new_kw,
+                                        "http_status": s_code,
+                                        "link_attribute": a_res
+                                    }
+                                    try:
+                                        requests.patch(patch_url, headers=headers_db, json=payload, timeout=5)
+                                        st.toast("Ссылка обновлена и проверена!")
                                     except Exception as e:
-                                        st.error(f"Ошибка удаления: {e}")
+                                        st.error(f"Ошибка сохранения: {e}")
+                                        
+                                    st.session_state.edit_link_id = None
+                                    st.rerun()
+                                    
+                                if ce_2.button("Отмена", key=f"cancel_{row_id}"):
+                                    st.session_state.edit_link_id = None
+                                    st.rerun()
+                        else:
+                            # --- РЕЖИМ ПРОСМОТРА ---
+                            h_status = row.get("http_status", 0)
+                            l_attr = row.get("link_attribute", "Unknown")
+                            
+                            if h_status == 200 and l_attr not in ["Not Found", "Link Missing", "Error"] and not str(l_attr).startswith("HTTP"):
+                                live_badge = "<span class='badge-green'>Live</span>"
+                            else:
+                                live_badge = "<span class='badge-red'>Dead</span>"
+
+                            if h_status == 200:
+                                status_badge = f"<span class='badge-green'>HTTP {h_status}</span>"
+                            else:
+                                status_badge = f"<span class='badge-red'>HTTP {h_status}</span>"
+                                
+                            if l_attr == "dofollow":
+                                attr_badge = f"<span class='badge-green'>{l_attr}</span>"
+                            elif l_attr == "nofollow":
+                                attr_badge = f"<span class='badge-yellow'>{l_attr}</span>"
+                            else:
+                                attr_badge = f"<span class='badge-red'>{l_attr}</span>"
+
+                            short_p = shorten_url(p_url, 30)
+                            short_t = shorten_url(t_url, 30)
+
+                            with st.container(border=True):
+                                c_u, c_tar, c_k, c_l, c_s, c_a, c_t, c_act = st.columns([1.9, 1.9, 1.2, 0.7, 0.9, 0.9, 0.9, 0.8])
+                                with c_u:
+                                    st.markdown(f"[{short_p}]({p_url})", unsafe_allow_html=True)
+                                with c_tar:
+                                    st.markdown(f"[{short_t}]({t_url})", unsafe_allow_html=True)
+                                with c_k:
+                                    st.markdown(f"`{t_kw}`")
+                                with c_l:
+                                    st.markdown(live_badge, unsafe_allow_html=True)
+                                with c_s:
+                                    st.markdown(status_badge, unsafe_allow_html=True)
+                                with c_a:
+                                    st.markdown(attr_badge, unsafe_allow_html=True)
+                                with c_t:
+                                    st.markdown(f"<span style='opacity:0.6; font-size:0.8em;'>{checked_time}</span>", unsafe_allow_html=True)
+                                with c_act:
+                                    ca1, ca2 = st.columns(2)
+                                    if ca1.button("✏️", key=f"edit_btn_{row_id}", help="Редактировать"):
+                                        st.session_state.edit_link_id = row_id
+                                        st.rerun()
+                                    if ca2.button("🗑️", key=f"del_link_{row_id}", help="Удалить из базы"):
+                                        del_url = f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_id}"
+                                        try:
+                                            requests.delete(del_url, headers=get_supabase_headers(), timeout=5)
+                                            st.toast("Ссылка удалена!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Ошибка удаления: {e}")
 
                     # Кастомная пагинация снизу (списком 1 2 3...)
                     if total_pages > 1:
