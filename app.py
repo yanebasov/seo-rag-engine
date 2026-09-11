@@ -87,6 +87,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Функция для защиты от багов с LaTeX (экранирует знаки доллара)
+def safe_md(text):
+    if not isinstance(text, str): return text
+    return text.replace('$', '\\$')
+
 def get_score_badge(score):
     if score >= 0.65: return f"<span class='badge-green'>{score:.2f}</span>"
     elif score >= 0.45: return f"<span class='badge-yellow'>{score:.2f}</span>"
@@ -157,7 +162,6 @@ with st.sidebar:
     if "selected_product" not in st.session_state or st.session_state.selected_product not in project_domains:
         st.session_state.selected_product = project_domains[0] if project_domains else "pics.io"
         
-    # Блок с логотипами
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
         try:
@@ -452,7 +456,7 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
 2. Органично вставь 1-2 из этих внутренних ссылок:
 {links_context}"""
                                 generated_text = generate_llm(gen_prompt, temperature=0.2)
-                                st.markdown(generated_text)
+                                st.markdown(safe_md(generated_text))
                                 st.download_button("📥 Скачать файл (.md)", data=generated_text, file_name=f"{target_kw.replace(' ','_')}.md", mime="text/markdown")
 
                     with c_doc:
@@ -473,10 +477,10 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
                                 doc_verdict = generate_llm(doc_prompt, temperature=0.0)
                                 
                                 if "PASS" in doc_verdict.upper() and "FAIL" not in doc_verdict.upper():
-                                    st.markdown(f"<div style='background-color:rgba(46,133,64,0.1); padding:10px; border-radius:6px; border-left: 4px solid #2E7D32;'>{doc_verdict}</div>", unsafe_allow_html=True)
+                                    st.markdown(f"<div style='background-color:rgba(46,133,64,0.1); padding:10px; border-radius:6px; border-left: 4px solid #2E7D32;'>{safe_md(doc_verdict)}</div>", unsafe_allow_html=True)
                                     st.markdown(f"<div class='qa-box'><b>🛡️ Quality Assurance:</b><br>Текст проверен нейросетью и верифицирован специалистом <b>@{st.session_state['username']}</b>. <br>✅ Готово к публикации.</div>", unsafe_allow_html=True)
                                 else:
-                                    st.markdown(f"<div style='background-color:rgba(239,68,68,0.1); padding:10px; border-radius:6px; border-left: 4px solid #DC2626;'>{doc_verdict}</div>", unsafe_allow_html=True)
+                                    st.markdown(f"<div style='background-color:rgba(239,68,68,0.1); padding:10px; border-radius:6px; border-left: 4px solid #DC2626;'>{safe_md(doc_verdict)}</div>", unsafe_allow_html=True)
                                     st.markdown(f"<div class='qa-box' style='border-left-color: #DC2626; background-color: rgba(239, 68, 68, 0.05);'><b>❌ QA Rejected:</b><br>Текст не прошел внутреннюю проверку на достоверность. Требуется регенерация.</div>", unsafe_allow_html=True)
                                 
                                 save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
@@ -568,8 +572,9 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
 
         if st.session_state.get("gap_active"):
             st.markdown(st.session_state.gap_dash_html, unsafe_allow_html=True)
+            
             st.markdown("#### 🕵️ Пруфы аудита (Стратегия)")
-            st.info(st.session_state.gap_strategy_text)
+            st.info(safe_md(st.session_state.gap_strategy_text))
 
             st.divider()
             
@@ -588,7 +593,7 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
 """
                     brief = generate_llm(brief_prompt, temperature=0.3)
                     st.markdown("#### 📋 Готовый тикет (ТЗ)")
-                    st.markdown(brief)
+                    st.markdown(safe_md(brief))
                     st.download_button("📥 Скачать ТЗ (.md)", data=brief, file_name=f"Jira_Task_{st.session_state.gap_kw.replace(' ','_')}.md", mime="text/markdown")
 
             st.divider()
@@ -881,7 +886,7 @@ elif st.session_state.active_tab.startswith("🎯 Insertion"):
                     with st.expander(f"Target: {target_url}", expanded=True):
                         st.markdown(f"<p style='font-size: 0.85em; opacity: 0.7; margin-bottom: 15px;'>Mode: {insertion_mode} | Key: {target_kw}</p>", unsafe_allow_html=True)
                         with st.expander("DONOR CONTEXT & RESULT", expanded=True):
-                            st.write(res_text)
+                            st.write(safe_md(res_text))
             else: st.warning("Заполните поля.")
 
 # 6. ЛИНК-БИЛДЕР
@@ -922,6 +927,6 @@ elif st.session_state.active_tab.startswith("📜 История"):
             st.dataframe(df[["created_at", "target_keyword", "status"]], hide_index=True, use_container_width=True)
             sel_id = st.selectbox("Лог:", df["id"].tolist())
             row = next(r for r in h_data if r["id"] == sel_id)
-            st.write(row["generated_text"])
-            st.caption(row.get('doctor_verdict',''))
+            st.write(safe_md(row["generated_text"]))
+            st.caption(safe_md(row.get('doctor_verdict','')))
         else: st.info("Пусто")
