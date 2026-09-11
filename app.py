@@ -80,6 +80,10 @@ st.markdown("""
     .badge-red { background-color: rgba(239, 68, 68, 0.15); color: #DC2626; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600; border: 1px solid rgba(239, 68, 68, 0.3); }
     .badge-neutral { background-color: rgba(128, 128, 128, 0.1); color: var(--text-color); padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600; }
     .qa-box { background-color: rgba(46, 133, 64, 0.05); border-left: 5px solid #2E7D32; padding: 15px; border-radius: 6px; margin-top: 15px; }
+    [data-testid="stSidebar"] [data-testid="stImage"] img {
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -153,6 +157,19 @@ with st.sidebar:
     if "selected_product" not in st.session_state or st.session_state.selected_product not in project_domains:
         st.session_state.selected_product = project_domains[0] if project_domains else "pics.io"
         
+    # Блок с логотипами
+    c1, c2, c3 = st.columns([1, 1.5, 1])
+    with c2:
+        try:
+            if st.session_state.selected_product == "pics.io": 
+                st.image("picsio_logo.jpeg", use_container_width=True)
+            elif st.session_state.selected_product == "toriut": 
+                st.image("toriut_logo.jpeg", use_container_width=True)
+        except Exception: 
+            pass
+            
+    st.write("")
+    
     st.markdown("<p style='font-size:0.8em; font-weight:700; opacity:0.6; letter-spacing:1px; margin-bottom:5px;'>ACTIVE PROJECT</p>", unsafe_allow_html=True)
     selected_product = st.selectbox(
         "Продукт",
@@ -465,7 +482,7 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
                                 save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
 
 
-# 2. GAP AUDIT (ТАБЛИЦА ВНИЗУ, ТЕКСТ ВЕРНУЛСЯ)
+# 2. GAP AUDIT
 elif st.session_state.active_tab.startswith("📊 Gap"):
     st.info("💡 **Как это работает:** Введите поисковый запрос (интент), под который планируете писать. Система просканирует базу знаний и покажет Score (покрытие фактами). Если покрытие слабое — создаст ТЗ для автора.")
     
@@ -531,7 +548,6 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
 """
                 raw_ans = generate_llm(matrix_prompt, temperature=0.1)
                 
-                # Парсинг двойного ответа
                 if "===MATRIX===" in raw_ans:
                     strat_text, raw_json = raw_ans.split("===MATRIX===", 1)
                 elif "```json" in raw_ans:
@@ -551,16 +567,12 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
                 st.session_state.gap_active = True
 
         if st.session_state.get("gap_active"):
-            # 1. Дашборд
             st.markdown(st.session_state.gap_dash_html, unsafe_allow_html=True)
-            
-            # 2. Живой текст стратега (который ты просил вернуть)
             st.markdown("#### 🕵️ Пруфы аудита (Стратегия)")
             st.info(st.session_state.gap_strategy_text)
 
             st.divider()
             
-            # 3. Кнопка генерации ТЗ
             if st.button("📝 Создать Jira-ready ТЗ копирайтеру", type="primary"):
                 with st.spinner("Генерация ТЗ..."):
                     brief_prompt = f"""Сгенерируй детальное ТЗ для копирайтера под запрос '{st.session_state.gap_kw}' на основе матрицы пробелов:
@@ -581,7 +593,6 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
 
             st.divider()
 
-            # 4. Таблица в самом низу
             try:
                 matrix_data = json.loads(st.session_state.gap_matrix)
                 if matrix_data:
