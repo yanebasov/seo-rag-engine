@@ -162,9 +162,10 @@ with st.sidebar:
     if "selected_product" not in st.session_state or st.session_state.selected_product not in project_domains:
         st.session_state.selected_product = project_domains[0] if project_domains else "pics.io"
         
+    # Блок с динамическим логотипом (жесткая зачистка имени файла)
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
-        safe_domain = st.session_state.selected_product.replace(".", "").replace("-", "")
+        safe_domain = re.sub(r'[^a-zA-Z0-9]', '', st.session_state.selected_product).lower()
         logo_path = None
         for ext in ["png", "jpg", "jpeg"]:
             if os.path.exists(f"{safe_domain}_logo.{ext}"):
@@ -192,9 +193,11 @@ with st.sidebar:
             
             if st.form_submit_button("Create Project", use_container_width=True):
                 if new_p_name and new_p_domain:
+                    # Жестко вырезаем все недопустимые символы для файловой системы
+                    safe_d = re.sub(r'[^a-zA-Z0-9]', '', new_p_domain).lower()
+                    
                     if new_p_logo:
-                        safe_d = new_p_domain.replace(".", "").replace("-", "")
-                        ext = new_p_logo.name.split('.')[-1]
+                        ext = new_p_logo.name.split('.')[-1].lower()
                         with open(f"{safe_d}_logo.{ext}", "wb") as f:
                             f.write(new_p_logo.getbuffer())
                             
