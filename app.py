@@ -87,7 +87,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Функция для защиты от багов с LaTeX (экранирует знаки доллара)
+# Защита от багов с LaTeX (экранирует знаки доллара)
 def safe_md(text):
     if not isinstance(text, str): return text
     return text.replace('$', '\\$')
@@ -162,15 +162,17 @@ with st.sidebar:
     if "selected_product" not in st.session_state or st.session_state.selected_product not in project_domains:
         st.session_state.selected_product = project_domains[0] if project_domains else "pics.io"
         
+    # Блок с динамическим логотипом
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
-        try:
-            if st.session_state.selected_product == "pics.io": 
-                st.image("picsio_logo.jpeg", use_container_width=True)
-            elif st.session_state.selected_product == "toriut": 
-                st.image("toriut_logo.jpeg", use_container_width=True)
-        except Exception: 
-            pass
+        safe_domain = st.session_state.selected_product.replace(".", "").replace("-", "")
+        logo_path = None
+        for ext in ["png", "jpg", "jpeg"]:
+            if os.path.exists(f"{safe_domain}_logo.{ext}"):
+                logo_path = f"{safe_domain}_logo.{ext}"
+                break
+        if logo_path:
+            st.image(logo_path, use_container_width=True)
             
     st.write("")
     
@@ -184,13 +186,28 @@ with st.sidebar:
     )
     
     with st.expander("+ Add New Project"):
-        new_p_name = st.text_input("Project Name", placeholder="MyProduct (SaaS)")
-        new_p_domain = st.text_input("Domain", placeholder="myproduct.com")
-        if st.button("Create Project", use_container_width=True):
-            if new_p_name and new_p_domain:
-                requests.post(f"{SUPABASE_URL}/rest/v1/seo_projects", headers=get_supabase_headers(), json={"project_name": new_p_name, "domain": new_p_domain})
-                st.cache_data.clear()
-                st.rerun()
+        with st.form("add_project_form"):
+            new_p_name = st.text_input("Project Name", placeholder="MyProduct (SaaS)")
+            new_p_domain = st.text_input("Domain", placeholder="myproduct.com")
+            new_p_logo = st.file_uploader("Логотип (PNG/JPG)", type=["png", "jpg", "jpeg"])
+            
+            if st.form_submit_button("Create Project", use_container_width=True):
+                if new_p_name and new_p_domain:
+                    # Если загружен логотип, сохраняем его локально под очищенным именем домена
+                    if new_p_logo:
+                        safe_d = new_p_domain.replace(".", "").replace("-", "")
+                        ext = new_p_logo.name.split('.')[-1]
+                        with open(f"{safe_d}_logo.{ext}", "wb") as f:
+                            f.write(new_p_logo.getbuffer())
+                            
+                    resp = requests.post(f"{SUPABASE_URL}/rest/v1/seo_projects", headers=get_supabase_headers(), json={"project_name": new_p_name, "domain": new_p_domain})
+                    if resp.status_code in (200, 201):
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"Ошибка БД: {resp.text}")
+                else:
+                    st.warning("Укажите название и домен!")
         
     st.divider()
 
@@ -330,12 +347,6 @@ def get_content_history(product: str):
         if res.status_code == 200: return res.json()
     except: pass
     return []
-
-def shorten_url(url, max_len=30):
-    if not url or str(url) == "#" or str(url).lower() == "none": return "—"
-    clean = str(url).replace("https://", "").replace("http://", "").replace("www.", "")
-    if len(clean) > max_len: return clean[:max_len] + "..."
-    return clean
 
 def check_link_status(page_url, target_url, target_keyword):
     status_code = 0
