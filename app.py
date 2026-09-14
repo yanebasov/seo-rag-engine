@@ -162,7 +162,6 @@ with st.sidebar:
     if "selected_product" not in st.session_state or st.session_state.selected_product not in project_domains:
         st.session_state.selected_product = project_domains[0] if project_domains else "pics.io"
         
-    # Блок с динамическим логотипом
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
         safe_domain = st.session_state.selected_product.replace(".", "").replace("-", "")
@@ -193,7 +192,6 @@ with st.sidebar:
             
             if st.form_submit_button("Create Project", use_container_width=True):
                 if new_p_name and new_p_domain:
-                    # Если загружен логотип, сохраняем его локально под очищенным именем домена
                     if new_p_logo:
                         safe_d = new_p_domain.replace(".", "").replace("-", "")
                         ext = new_p_logo.name.split('.')[-1]
@@ -347,6 +345,12 @@ def get_content_history(product: str):
         if res.status_code == 200: return res.json()
     except: pass
     return []
+
+def shorten_url(url, max_len=30):
+    if not url or str(url) == "#" or str(url).lower() == "none": return "—"
+    clean = str(url).replace("https://", "").replace("http://", "").replace("www.", "")
+    if len(clean) > max_len: return clean[:max_len] + "..."
+    return clean
 
 def check_link_status(page_url, target_url, target_keyword):
     status_code = 0
@@ -753,6 +757,8 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
             st.write("")
             
             display_df = df[['Select', 'id', 'page_url', 'Anchor & Target', 'Status', 'link_attribute', 'http_status', 'Checked']]
+            
+            editor_key = f"link_editor_{selected_product}"
             edited_df = st.data_editor(
                 display_df,
                 column_config={
@@ -766,7 +772,8 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                     "Checked": st.column_config.TextColumn("Indexed / Checked")
                 },
                 disabled=["page_url", "Anchor & Target", "Status", "link_attribute", "http_status", "Checked"],
-                hide_index=True, use_container_width=True
+                hide_index=True, use_container_width=True,
+                key=editor_key
             )
             
             selected_rows = edited_df[edited_df['Select']]
@@ -792,19 +799,32 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
 
             if len(selected_ids) > 0:
                 ca1, ca2 = st.columns([1, 5])
-                if ca1.button("🗑️ Удалить", type="primary"):
-                    for rid in selected_ids: requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{rid}", headers=get_supabase_headers())
+                if ca1.button("🗑️ Удалить выбранные", type="primary"):
+                    for rid in selected_ids: 
+                        requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{rid}", headers=get_supabase_headers())
+                    if editor_key in st.session_state:
+                        del st.session_state[editor_key]
                     st.rerun()
-                if ca2.button("🔄 Перепроверить", type="secondary"):
+                if ca2.button("🔄 Перепроверить выбранные", type="secondary"):
                     with st.spinner("Идет парсинг ссылок..."):
                         for rid in selected_ids:
                             orig_data = df[df['id'] == rid].iloc[0]
                             s_code, a_res = check_link_status(orig_data['page_url'], orig_data['target_url'], orig_data['target_keyword'])
                             requests.patch(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{rid}", headers=get_supabase_headers(), json={"http_status": s_code, "link_attribute": a_res})
                     st.rerun()
-                    
-            st.write("")
-            st.download_button("📥 Экспорт всей базы в CSV", data=pd.DataFrame(links_data).to_csv(index=False).encode('utf-8'), file_name=f"links_dashboard_{selected_product}.csv", mime="text/csv")
+            
+            st.divider()
+            c_exp, c_dang = st.columns(2)
+            with c_exp:
+                st.download_button("📥 Экспорт всей базы в CSV", data=pd.DataFrame(links_data).to_csv(index=False).encode('utf-8'), file_name=f"links_dashboard_{selected_product}.csv", mime="text/csv")
+            with c_dang:
+                with st.expander("⚠️ Danger Zone (Массовая очистка)"):
+                    st.warning("Это действие навсегда удалит все ссылки текущего проекта.")
+                    if st.button(f"💥 Удалить ВСЕ {total_links} ссылок ({selected_product})", type="primary"):
+                        requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}", headers=get_supabase_headers())
+                        if editor_key in st.session_state:
+                            del st.session_state[editor_key]
+                        st.rerun()
             
         else:
             st.info(f"База бэклинков для {selected_product.upper()} пока пуста или недоступна.")
