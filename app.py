@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 try:
     from dotenv import load_dotenv
@@ -44,7 +44,7 @@ if hasattr(st, "secrets") and "AUTH_USERS" in st.secrets:
 
 st.set_page_config(page_title="SEO RAG Enterprise Hub", layout="wide", page_icon="🎯", initial_sidebar_state="expanded")
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS И ГЛОБАЛЬНЫЕ СТИЛИ ---
 st.markdown("""
 <style>
     [data-testid="stSidebar"] .stButton > button {
@@ -84,6 +84,16 @@ st.markdown("""
         border-radius: 12px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
     }
+    /* Стили для Glassmorphism логина */
+    .login-wrapper {
+        background: rgba(128, 128, 128, 0.05);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(128, 128, 128, 0.15);
+        border-radius: 16px;
+        padding: 40px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -119,7 +129,90 @@ def clean_json_string(raw_text):
 def get_supabase_headers(): 
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
 
-# --- ФЕТЧИНГ ПРОЕКТОВ ---
+# Инициализация состояния
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+    st.session_state["username"] = None
+    st.session_state["last_active"] = None
+
+# Авто-разлогин (Session Timeout: 30 минут)
+if st.session_state.get("authenticated") and st.session_state.get("last_active"):
+    if datetime.now() - st.session_state["last_active"] > timedelta(minutes=30):
+        st.session_state["authenticated"] = False
+        st.session_state["username"] = None
+        st.session_state["last_active"] = None
+        st.warning("Сессия истекла из-за неактивности. Пожалуйста, войдите снова для защиты данных.")
+
+# Обновляем таймер активности
+if st.session_state.get("authenticated"):
+    st.session_state["last_active"] = datetime.now()
+
+# --- ЭКРАН ВХОДА (LOGIN SCREEN) ---
+if not st.session_state["authenticated"]:
+    # Скрываем сайдбар полностью до входа
+    st.markdown("""<style>[data-testid="collapsedControl"], [data-testid="stSidebar"] { display: none !important; }</style>""", unsafe_allow_html=True)
+    
+    st.write("")
+    st.write("")
+    st.write("")
+    
+    # Центрирование
+    _, col_login, _ = st.columns([1, 1.2, 1])
+    
+    with col_login:
+        st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+        
+        # Логотипы продуктов
+        c_l1, c_l2, c_l3, c_l4 = st.columns([1, 1.5, 1.5, 1])
+        with c_l2:
+            if os.path.exists("picsio_logo.jpeg"):
+                st.image("picsio_logo.jpeg", use_container_width=True)
+        with c_l3:
+            if os.path.exists("toriut_logo.jpeg"):
+                st.image("toriut_logo.jpeg", use_container_width=True)
+                
+        # Умное приветствие
+        hour = (datetime.now(timezone.utc).hour + 3) % 24
+        if 5 <= hour < 12: greeting = "Доброе утро"
+        elif 12 <= hour < 18: greeting = "Добрый день"
+        else: greeting = "Добрый вечер"
+        
+        st.markdown(f"<h2 style='text-align: center; margin-top: 15px;'>{greeting}</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; opacity: 0.7; margin-bottom: 25px;'>Авторизуйтесь для доступа к SEO RAG Enterprise Hub</p>", unsafe_allow_html=True)
+        
+        # Форма логина с вводом по Enter
+        with st.form("login_form", clear_on_submit=True):
+            user_input = st.text_input("Логин")
+            pass_input = st.text_input("Пароль", type="password")
+            
+            # Центрируем кнопку внутри формы
+            sub_c1, sub_c2, sub_c3 = st.columns([1, 2, 1])
+            with sub_c2:
+                submit_btn = st.form_submit_button("Войти в систему", use_container_width=True)
+                
+            if submit_btn:
+                u = user_input.strip().lower()
+                p = pass_input.strip()
+                if u in AUTH_USERS and AUTH_USERS[u] == p:
+                    st.session_state["authenticated"] = True
+                    st.session_state["username"] = u
+                    st.session_state["last_active"] = datetime.now()
+                    
+                    # Разделение прав (RBAC) при входе
+                    if u == "teamlead":
+                        st.session_state["active_tab"] = "📊 Gap Audit"
+                    else:
+                        st.session_state["active_tab"] = "✍️ Генерация + Доктор"
+                        
+                    st.rerun()
+                else:
+                    st.error("Неверный логин или пароль")
+                    
+        st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+
+# --- ФЕТЧИНГ ПРОЕКТОВ И САЙДБАР (Отображается только после логина) ---
 @st.cache_data(ttl=60)
 def fetch_projects():
     default_projects = [{"project_name": "Pics.io (DAM)", "domain": "pics.io"}, {"project_name": "Toriut (PIM)", "domain": "toriut"}]
@@ -134,35 +227,11 @@ all_projects = fetch_projects()
 project_options = {p["domain"]: p["project_name"] for p in all_projects}
 project_domains = list(project_options.keys())
 
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-    st.session_state["username"] = None
-
-if not st.session_state["authenticated"]:
-    with st.container(border=True):
-        st.markdown("### 🔐 System Login")
-        col1, _ = st.columns([1, 2])
-        with col1:
-            user_input = st.text_input("User")
-            pass_input = st.text_input("Password", type="password")
-            if st.button("Log In", type="primary"):
-                u = user_input.strip().lower()
-                p = pass_input.strip()
-                if u in AUTH_USERS and AUTH_USERS[u] == p:
-                    st.session_state["authenticated"] = True
-                    st.session_state["username"] = u
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
-    st.stop()
-
-# --- САЙДБАР ---
 with st.sidebar:
     st.write("") 
     if "selected_product" not in st.session_state or st.session_state.selected_product not in project_domains:
         st.session_state.selected_product = project_domains[0] if project_domains else "pics.io"
         
-    # Блок с динамическим логотипом (жесткая зачистка имени файла)
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
         safe_domain = re.sub(r'[^a-zA-Z0-9]', '', st.session_state.selected_product).lower()
@@ -193,9 +262,7 @@ with st.sidebar:
             
             if st.form_submit_button("Create Project", use_container_width=True):
                 if new_p_name and new_p_domain:
-                    # Жестко вырезаем все недопустимые символы для файловой системы
                     safe_d = re.sub(r'[^a-zA-Z0-9]', '', new_p_domain).lower()
-                    
                     if new_p_logo:
                         ext = new_p_logo.name.split('.')[-1].lower()
                         with open(f"{safe_d}_logo.{ext}", "wb") as f:
@@ -216,6 +283,7 @@ with st.sidebar:
     if st.button("Log Out", use_container_width=True):
         st.session_state["authenticated"] = False
         st.session_state["username"] = None
+        st.session_state["last_active"] = None
         st.rerun()
     
     st.write("")
@@ -348,12 +416,6 @@ def get_content_history(product: str):
         if res.status_code == 200: return res.json()
     except: pass
     return []
-
-def shorten_url(url, max_len=30):
-    if not url or str(url) == "#" or str(url).lower() == "none": return "—"
-    clean = str(url).replace("https://", "").replace("http://", "").replace("www.", "")
-    if len(clean) > max_len: return clean[:max_len] + "..."
-    return clean
 
 def check_link_status(page_url, target_url, target_keyword):
     status_code = 0
