@@ -84,7 +84,6 @@ st.markdown("""
         border-radius: 12px !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
     }
-    /* Стили для Glassmorphism логина */
     .login-wrapper {
         background: rgba(128, 128, 128, 0.05);
         backdrop-filter: blur(10px);
@@ -97,7 +96,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Защита от багов с LaTeX (экранирует знаки доллара)
 def safe_md(text):
     if not isinstance(text, str): return text
     return text.replace('$', '\\$')
@@ -129,90 +127,6 @@ def clean_json_string(raw_text):
 def get_supabase_headers(): 
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
 
-# Инициализация состояния
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-    st.session_state["username"] = None
-    st.session_state["last_active"] = None
-
-# Авто-разлогин (Session Timeout: 30 минут)
-if st.session_state.get("authenticated") and st.session_state.get("last_active"):
-    if datetime.now() - st.session_state["last_active"] > timedelta(minutes=30):
-        st.session_state["authenticated"] = False
-        st.session_state["username"] = None
-        st.session_state["last_active"] = None
-        st.warning("Сессия истекла из-за неактивности. Пожалуйста, войдите снова для защиты данных.")
-
-# Обновляем таймер активности
-if st.session_state.get("authenticated"):
-    st.session_state["last_active"] = datetime.now()
-
-# --- ЭКРАН ВХОДА (LOGIN SCREEN) ---
-if not st.session_state["authenticated"]:
-    # Скрываем сайдбар полностью до входа
-    st.markdown("""<style>[data-testid="collapsedControl"], [data-testid="stSidebar"] { display: none !important; }</style>""", unsafe_allow_html=True)
-    
-    st.write("")
-    st.write("")
-    st.write("")
-    
-    # Центрирование
-    _, col_login, _ = st.columns([1, 1.2, 1])
-    
-    with col_login:
-        st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
-        
-        # Логотипы продуктов
-        c_l1, c_l2, c_l3, c_l4 = st.columns([1, 1.5, 1.5, 1])
-        with c_l2:
-            if os.path.exists("picsio_logo.jpeg"):
-                st.image("picsio_logo.jpeg", use_container_width=True)
-        with c_l3:
-            if os.path.exists("toriut_logo.jpeg"):
-                st.image("toriut_logo.jpeg", use_container_width=True)
-                
-        # Умное приветствие
-        hour = (datetime.now(timezone.utc).hour + 3) % 24
-        if 5 <= hour < 12: greeting = "Доброе утро"
-        elif 12 <= hour < 18: greeting = "Добрый день"
-        else: greeting = "Добрый вечер"
-        
-        st.markdown(f"<h2 style='text-align: center; margin-top: 15px;'>{greeting}</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; opacity: 0.7; margin-bottom: 25px;'>Авторизуйтесь для доступа к SEO RAG Enterprise Hub</p>", unsafe_allow_html=True)
-        
-        # Форма логина с вводом по Enter
-        with st.form("login_form", clear_on_submit=True):
-            user_input = st.text_input("Логин")
-            pass_input = st.text_input("Пароль", type="password")
-            
-            # Центрируем кнопку внутри формы
-            sub_c1, sub_c2, sub_c3 = st.columns([1, 2, 1])
-            with sub_c2:
-                submit_btn = st.form_submit_button("Войти в систему", use_container_width=True)
-                
-            if submit_btn:
-                u = user_input.strip().lower()
-                p = pass_input.strip()
-                if u in AUTH_USERS and AUTH_USERS[u] == p:
-                    st.session_state["authenticated"] = True
-                    st.session_state["username"] = u
-                    st.session_state["last_active"] = datetime.now()
-                    
-                    # Разделение прав (RBAC) при входе
-                    if u == "teamlead":
-                        st.session_state["active_tab"] = "📊 Gap Audit"
-                    else:
-                        st.session_state["active_tab"] = "✍️ Генерация + Доктор"
-                        
-                    st.rerun()
-                else:
-                    st.error("Неверный логин или пароль")
-                    
-        st.markdown('</div>', unsafe_allow_html=True)
-    st.stop()
-
-
-# --- ФЕТЧИНГ ПРОЕКТОВ И САЙДБАР (Отображается только после логина) ---
 @st.cache_data(ttl=60)
 def fetch_projects():
     default_projects = [{"project_name": "Pics.io (DAM)", "domain": "pics.io"}, {"project_name": "Toriut (PIM)", "domain": "toriut"}]
@@ -227,6 +141,78 @@ all_projects = fetch_projects()
 project_options = {p["domain"]: p["project_name"] for p in all_projects}
 project_domains = list(project_options.keys())
 
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+    st.session_state["username"] = None
+    st.session_state["last_active"] = None
+
+if st.session_state.get("authenticated") and st.session_state.get("last_active"):
+    if datetime.now() - st.session_state["last_active"] > timedelta(minutes=30):
+        st.session_state["authenticated"] = False
+        st.session_state["username"] = None
+        st.session_state["last_active"] = None
+        st.warning("Сессия истекла из-за неактивности. Пожалуйста, войдите снова для защиты данных.")
+
+if st.session_state.get("authenticated"):
+    st.session_state["last_active"] = datetime.now()
+
+# --- ЭКРАН ВХОДА ---
+if not st.session_state["authenticated"]:
+    st.markdown("""<style>[data-testid="collapsedControl"], [data-testid="stSidebar"] { display: none !important; }</style>""", unsafe_allow_html=True)
+    
+    st.write("")
+    st.write("")
+    st.write("")
+    
+    _, col_login, _ = st.columns([1, 1.2, 1])
+    
+    with col_login:
+        st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+        
+        c_l1, c_l2, c_l3, c_l4 = st.columns([1, 1.5, 1.5, 1])
+        with c_l2:
+            if os.path.exists("picsio_logo.jpeg"):
+                st.image("picsio_logo.jpeg", use_container_width=True)
+        with c_l3:
+            if os.path.exists("toriut_logo.jpeg"):
+                st.image("toriut_logo.jpeg", use_container_width=True)
+                
+        hour = (datetime.now(timezone.utc).hour + 3) % 24
+        if 5 <= hour < 12: greeting = "Доброе утро"
+        elif 12 <= hour < 18: greeting = "Добрый день"
+        else: greeting = "Добрый вечер"
+        
+        st.markdown(f"<h2 style='text-align: center; margin-top: 15px;'>{greeting}</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; opacity: 0.7; margin-bottom: 25px;'>Авторизуйтесь для доступа к SEO RAG Enterprise Hub</p>", unsafe_allow_html=True)
+        
+        with st.form("login_form", clear_on_submit=True):
+            user_input = st.text_input("Логин")
+            pass_input = st.text_input("Пароль", type="password")
+            
+            sub_c1, sub_c2, sub_c3 = st.columns([1, 2, 1])
+            with sub_c2:
+                submit_btn = st.form_submit_button("Войти в систему", use_container_width=True)
+                
+            if submit_btn:
+                u = user_input.strip().lower()
+                p = pass_input.strip()
+                if u in AUTH_USERS and AUTH_USERS[u] == p:
+                    st.session_state["authenticated"] = True
+                    st.session_state["username"] = u
+                    st.session_state["last_active"] = datetime.now()
+                    
+                    if u == "teamlead":
+                        st.session_state["active_tab"] = "📊 Gap Audit"
+                    else:
+                        st.session_state["active_tab"] = "✍️ Генерация + Доктор"
+                    st.rerun()
+                else:
+                    st.error("Неверный логин или пароль")
+                    
+        st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+# --- САЙДБАР ---
 with st.sidebar:
     st.write("") 
     if "selected_product" not in st.session_state or st.session_state.selected_product not in project_domains:
@@ -234,12 +220,20 @@ with st.sidebar:
         
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
-        safe_domain = re.sub(r'[^a-zA-Z0-9]', '', st.session_state.selected_product).lower()
+        domain_str = str(st.session_state.selected_product).lower()
         logo_path = None
-        for ext in ["png", "jpg", "jpeg"]:
-            if os.path.exists(f"{safe_domain}_logo.{ext}"):
-                logo_path = f"{safe_domain}_logo.{ext}"
-                break
+        
+        if "pics" in domain_str and os.path.exists("picsio_logo.jpeg"):
+            logo_path = "picsio_logo.jpeg"
+        elif "toriut" in domain_str and os.path.exists("toriut_logo.jpeg"):
+            logo_path = "toriut_logo.jpeg"
+        else:
+            safe_domain = re.sub(r'[^a-zA-Z0-9]', '', domain_str)
+            for ext in ["png", "jpg", "jpeg"]:
+                if os.path.exists(f"{safe_domain}_logo.{ext}"):
+                    logo_path = f"{safe_domain}_logo.{ext}"
+                    break
+                    
         if logo_path:
             st.image(logo_path, use_container_width=True)
             
@@ -309,13 +303,13 @@ with st.sidebar:
             st.session_state.active_tab = item
             if "edit_link_id" in st.session_state: st.session_state.edit_link_id = None
             if "gap_active" in st.session_state: st.session_state.gap_active = False 
+            if "link_page" in st.session_state: st.session_state.link_page = 1 # Сброс страницы при смене вкладки
             st.rerun()
     
     st.divider()
     gemini_key_input = st.text_input("Gemini API Key", value=DEFAULT_GEMINI_KEY, type="password")
     CURRENT_KEY = gemini_key_input.strip().strip("'").strip('"')
 
-# --- ЖЕЛЕЗОБЕТОННЫЙ РЕЗОЛВЕР МОДЕЛЕЙ И API ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def resolve_models(api_key):
     if not api_key: return None, None, "Укажите Gemini API Key"
@@ -815,15 +809,45 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
             status_f = f2.multiselect("Статус", ["🟢 Live", "🔴 Dead"], default=["🟢 Live", "🔴 Dead"])
             attr_f = f3.multiselect("Атрибут", ["dofollow", "nofollow", "Link Missing", "Wrong Anchor", "Not Found", "Error"], default=["dofollow", "nofollow", "Link Missing", "Wrong Anchor", "Not Found", "Error"])
             
+            # Применение фильтров
             if search_q: df = df[df['page_url'].str.contains(search_q, case=False)]
             df = df[df['Status'].isin(status_f)]
             df = df[df['link_attribute'].isin(attr_f)]
             
             st.write("")
             
-            display_df = df[['Select', 'id', 'page_url', 'Anchor & Target', 'Status', 'link_attribute', 'http_status', 'Checked']]
+            # --- ЛОГИКА ПАГИНАЦИИ ---
+            c_pag1, c_pag2, c_pag3 = st.columns([1, 2, 1])
+            with c_pag1:
+                items_per_page = st.selectbox("Записей на страницу:", [10, 20, 50, 100, 200], index=1)
             
-            editor_key = f"link_editor_{selected_product}"
+            total_filtered = len(df)
+            total_pages = max(1, (total_filtered + items_per_page - 1) // items_per_page)
+            
+            # Безопасный сброс страницы при смене фильтров
+            if "link_page" not in st.session_state: st.session_state.link_page = 1
+            if st.session_state.link_page > total_pages: st.session_state.link_page = total_pages
+            
+            with c_pag2:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True) # Вертикальное выравнивание
+                col_b1, col_t, col_b2 = st.columns([1, 2, 1])
+                if col_b1.button("⬅️ Назад", use_container_width=True, disabled=(st.session_state.link_page == 1)):
+                    st.session_state.link_page -= 1
+                    st.rerun()
+                col_t.markdown(f"<div style='text-align: center; margin-top: 5px;'><b>Страница {st.session_state.link_page} из {total_pages}</b><br><span style='opacity: 0.6; font-size: 0.8em;'>Всего ссылок: {total_filtered}</span></div>", unsafe_allow_html=True)
+                if col_b2.button("Вперед ➡️", use_container_width=True, disabled=(st.session_state.link_page == total_pages)):
+                    st.session_state.link_page += 1
+                    st.rerun()
+            
+            # Обрезка DataFrame для текущей страницы
+            start_idx = (st.session_state.link_page - 1) * items_per_page
+            end_idx = start_idx + items_per_page
+            page_df = df.iloc[start_idx:end_idx]
+            
+            # --- ОТРИСОВКА ТАБЛИЦЫ ---
+            display_df = page_df[['Select', 'id', 'page_url', 'Anchor & Target', 'Status', 'link_attribute', 'http_status', 'Checked']]
+            
+            editor_key = f"link_editor_{selected_product}_{st.session_state.link_page}"
             edited_df = st.data_editor(
                 display_df,
                 column_config={
@@ -841,6 +865,7 @@ elif st.session_state.active_tab.startswith("🌐 Link Checker"):
                 key=editor_key
             )
             
+            # Действия над выделенными ссылками (работают в пределах текущей страницы)
             selected_rows = edited_df[edited_df['Select']]
             selected_ids = selected_rows['id'].tolist()
             
