@@ -151,7 +151,7 @@ if st.session_state.get("authenticated") and st.session_state.get("last_active")
         st.session_state["authenticated"] = False
         st.session_state["username"] = None
         st.session_state["last_active"] = None
-        st.warning("Сессия истекла из-за неактивности. Пожалуйста, войдите снова для защиты данных.")
+        st.warning("Сессия истекла из-за неактивности. Пожалуйста, войдите снова.")
 
 if st.session_state.get("authenticated"):
     st.session_state["last_active"] = datetime.now()
@@ -159,23 +159,17 @@ if st.session_state.get("authenticated"):
 # --- ЭКРАН ВХОДА ---
 if not st.session_state["authenticated"]:
     st.markdown("""<style>[data-testid="collapsedControl"], [data-testid="stSidebar"] { display: none !important; }</style>""", unsafe_allow_html=True)
-    
     st.write("")
     st.write("")
     st.write("")
-    
     _, col_login, _ = st.columns([1, 1.2, 1])
-    
     with col_login:
         st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
-        
         c_l1, c_l2, c_l3, c_l4 = st.columns([1, 1.5, 1.5, 1])
         with c_l2:
-            if os.path.exists("picsio_logo.jpeg"):
-                st.image("picsio_logo.jpeg", use_container_width=True)
+            if os.path.exists("picsio_logo.jpeg"): st.image("picsio_logo.jpeg", use_container_width=True)
         with c_l3:
-            if os.path.exists("toriut_logo.jpeg"):
-                st.image("toriut_logo.jpeg", use_container_width=True)
+            if os.path.exists("toriut_logo.jpeg"): st.image("toriut_logo.jpeg", use_container_width=True)
                 
         hour = (datetime.now(timezone.utc).hour + 3) % 24
         if 5 <= hour < 12: greeting = "Доброе утро"
@@ -188,11 +182,8 @@ if not st.session_state["authenticated"]:
         with st.form("login_form", clear_on_submit=True):
             user_input = st.text_input("Логин")
             pass_input = st.text_input("Пароль", type="password")
-            
             sub_c1, sub_c2, sub_c3 = st.columns([1, 2, 1])
-            with sub_c2:
-                submit_btn = st.form_submit_button("Войти в систему", use_container_width=True)
-                
+            with sub_c2: submit_btn = st.form_submit_button("Войти в систему", use_container_width=True)
             if submit_btn:
                 u = user_input.strip().lower()
                 p = pass_input.strip()
@@ -200,15 +191,10 @@ if not st.session_state["authenticated"]:
                     st.session_state["authenticated"] = True
                     st.session_state["username"] = u
                     st.session_state["last_active"] = datetime.now()
-                    
-                    if u == "teamlead":
-                        st.session_state["active_tab"] = "📊 Gap Audit"
-                    else:
-                        st.session_state["active_tab"] = "✍️ Генерация + Доктор"
+                    if u == "teamlead": st.session_state["active_tab"] = "📊 Gap Audit"
+                    else: st.session_state["active_tab"] = "✍️ Генерация + Доктор"
                     st.rerun()
-                else:
-                    st.error("Неверный логин или пароль")
-                    
+                else: st.error("Неверный логин или пароль")
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
@@ -222,54 +208,37 @@ with st.sidebar:
     with c2:
         domain_str = str(st.session_state.selected_product).lower()
         logo_path = None
-        
-        if "pics" in domain_str and os.path.exists("picsio_logo.jpeg"):
-            logo_path = "picsio_logo.jpeg"
-        elif "toriut" in domain_str and os.path.exists("toriut_logo.jpeg"):
-            logo_path = "toriut_logo.jpeg"
+        if "pics" in domain_str and os.path.exists("picsio_logo.jpeg"): logo_path = "picsio_logo.jpeg"
+        elif "toriut" in domain_str and os.path.exists("toriut_logo.jpeg"): logo_path = "toriut_logo.jpeg"
         else:
             safe_domain = re.sub(r'[^a-zA-Z0-9]', '', domain_str)
             for ext in ["png", "jpg", "jpeg"]:
                 if os.path.exists(f"{safe_domain}_logo.{ext}"):
                     logo_path = f"{safe_domain}_logo.{ext}"
                     break
-                    
-        if logo_path:
-            st.image(logo_path, use_container_width=True)
+        if logo_path: st.image(logo_path, use_container_width=True)
             
     st.write("")
-    
     st.markdown("<p style='font-size:0.8em; font-weight:700; opacity:0.6; letter-spacing:1px; margin-bottom:5px;'>ACTIVE PROJECT</p>", unsafe_allow_html=True)
-    selected_product = st.selectbox(
-        "Продукт",
-        options=project_domains,
-        format_func=lambda x: project_options.get(x, x),
-        key="selected_product",
-        label_visibility="collapsed"
-    )
+    selected_product = st.selectbox("Продукт", options=project_domains, format_func=lambda x: project_options.get(x, x), key="selected_product", label_visibility="collapsed")
     
     with st.expander("+ Add New Project"):
         with st.form("add_project_form"):
             new_p_name = st.text_input("Project Name", placeholder="MyProduct (SaaS)")
             new_p_domain = st.text_input("Domain", placeholder="myproduct.com")
             new_p_logo = st.file_uploader("Логотип (PNG/JPG)", type=["png", "jpg", "jpeg"])
-            
             if st.form_submit_button("Create Project", use_container_width=True):
                 if new_p_name and new_p_domain:
                     safe_d = re.sub(r'[^a-zA-Z0-9]', '', new_p_domain).lower()
                     if new_p_logo:
                         ext = new_p_logo.name.split('.')[-1].lower()
-                        with open(f"{safe_d}_logo.{ext}", "wb") as f:
-                            f.write(new_p_logo.getbuffer())
-                            
+                        with open(f"{safe_d}_logo.{ext}", "wb") as f: f.write(new_p_logo.getbuffer())
                     resp = requests.post(f"{SUPABASE_URL}/rest/v1/seo_projects", headers=get_supabase_headers(), json={"project_name": new_p_name, "domain": new_p_domain})
                     if resp.status_code in (200, 201):
                         st.cache_data.clear()
                         st.rerun()
-                    else:
-                        st.error(f"Ошибка БД: {resp.text}")
-                else:
-                    st.warning("Укажите название и домен!")
+                    else: st.error(f"Ошибка БД: {resp.text}")
+                else: st.warning("Укажите название и домен!")
         
     st.divider()
 
@@ -283,19 +252,8 @@ with st.sidebar:
     st.write("")
     st.markdown("<p style='opacity: 0.6; font-size:0.8em; font-weight:700; letter-spacing:1px; margin-bottom:10px;'>MODULES</p>", unsafe_allow_html=True)
     
-    menu_items = [
-        "✍️ Генерация + Доктор",
-        "📊 Gap Audit",
-        "🌐 Link Checker",
-        "👥 База доноров",
-        "🎯 Insertion Planner",
-        "🔗 Линк-билдер",
-        "⚡ Batch Processing",
-        "📜 История"
-    ]
-    
-    if "active_tab" not in st.session_state:
-        st.session_state.active_tab = menu_items[0]
+    menu_items = ["✍️ Генерация + Доктор", "📊 Gap Audit", "🌐 Link Checker", "👥 База доноров", "🎯 Insertion Planner", "🔗 Линк-билдер", "⚡ Batch Processing", "📜 История"]
+    if "active_tab" not in st.session_state: st.session_state.active_tab = menu_items[0]
         
     for item in menu_items:
         btn_type = "primary" if st.session_state.active_tab == item else "secondary"
@@ -303,7 +261,7 @@ with st.sidebar:
             st.session_state.active_tab = item
             if "edit_link_id" in st.session_state: st.session_state.edit_link_id = None
             if "gap_active" in st.session_state: st.session_state.gap_active = False 
-            if "link_page" in st.session_state: st.session_state.link_page = 1 # Сброс страницы при смене вкладки
+            if "link_page" in st.session_state: st.session_state.link_page = 1
             st.rerun()
     
     st.divider()
@@ -411,6 +369,12 @@ def get_content_history(product: str):
     except: pass
     return []
 
+def shorten_url(url, max_len=30):
+    if not url or str(url) == "#" or str(url).lower() == "none": return "—"
+    clean = str(url).replace("https://", "").replace("http://", "").replace("www.", "")
+    if len(clean) > max_len: return clean[:max_len] + "..."
+    return clean
+
 def check_link_status(page_url, target_url, target_keyword):
     status_code = 0
     attr_result = "Not Found"
@@ -418,7 +382,6 @@ def check_link_status(page_url, target_url, target_keyword):
     safe_t_kw = str(target_keyword).lower().strip() if target_keyword else ""
     t_url_lower = safe_t_url if safe_t_url not in ["none", "#", "—", ""] else ""
     t_kw_lower = safe_t_kw if safe_t_kw not in ["none", "#", "—", ""] else ""
-    
     try:
         resp = requests.get(page_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         status_code = resp.status_code
@@ -439,10 +402,8 @@ def check_link_status(page_url, target_url, target_keyword):
             if not found_url: attr_result = "Link Missing"
             elif found_url and not found_exact: attr_result = "Wrong Anchor"
         else: attr_result = f"HTTP Error {status_code}"
-    except Exception:
-        attr_result = "Error"
+    except: attr_result = "Error"
     return status_code, attr_result
-
 
 # --- MAIN CONTENT AREA ---
 st.title(st.session_state.active_tab.split(" (")[0])
@@ -480,16 +441,7 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
         if not df_facts.empty and 'claim' in df_facts.columns:
             display_df = df_facts[['claim', 'similarity']].copy()
             display_df.insert(0, "Использовать", True)
-            
-            edited_facts = st.data_editor(
-                display_df,
-                column_config={
-                    "Использовать": st.column_config.CheckboxColumn("☑️", default=True),
-                    "claim": st.column_config.TextColumn("Факт из базы (можно менять)", width="large"),
-                    "similarity": st.column_config.NumberColumn("Сходство", format="%.2f", disabled=True)
-                },
-                hide_index=True, use_container_width=True
-            )
+            edited_facts = st.data_editor(display_df, column_config={"Использовать": st.column_config.CheckboxColumn("☑️", default=True), "claim": st.column_config.TextColumn("Факт из базы (можно менять)", width="large"), "similarity": st.column_config.NumberColumn("Сходство", format="%.2f", disabled=True)}, hide_index=True, use_container_width=True)
         else:
             st.warning("Факты не найдены.")
             edited_facts = pd.DataFrame()
@@ -501,71 +453,38 @@ if st.session_state.active_tab.startswith("✍️ Генерация"):
             fmt = c_f.selectbox("Формат вывода", ["Markdown", "HTML", "Plain Text"])
             
             if st.button("🚀 Сгенерировать контент", type="primary", use_container_width=True):
-                if not edited_facts.empty:
-                    selected_facts = edited_facts[edited_facts["Использовать"]]["claim"].tolist()
-                else:
-                    selected_facts = []
-
-                if not selected_facts:
-                    st.error("Выберите хотя бы один факт для генерации!")
+                selected_facts = edited_facts[edited_facts["Использовать"]]["claim"].tolist() if not edited_facts.empty else []
+                if not selected_facts: st.error("Выберите хотя бы один факт для генерации!")
                 else:
                     c_res, c_doc = st.columns([1.5, 1])
-                    
                     with c_res:
                         with st.container(border=True):
                             st.markdown("#### ✨ Готовый контент")
                             with st.spinner("LLM пишет текст..."):
                                 facts_context = "\n".join([f"- {f}" for f in selected_facts])
                                 links_context = "\n".join([f"- [{p.get('title','')}]({p.get('url','')})" for p in st.session_state.gen_pages]) if st.session_state.gen_pages else "Отсутствуют"
-                                
-                                gen_prompt = f"""Ты — Senior SEO-копирайтер для {selected_product}.
-Напиши '{content_type}' под запрос '{target_kw}'.
-Формат: {fmt}
-Тональность: {tov}
-
-Строгие правила:
-1. ИСПОЛЬЗУЙ ТОЛЬКО ЭТИ ФАКТЫ (0% отсебятины):
-{facts_context}
-
-2. Органично вставь 1-2 из этих внутренних ссылок:
-{links_context}"""
+                                gen_prompt = f"Ты — Senior SEO-копирайтер для {selected_product}.\nНапиши '{content_type}' под запрос '{target_kw}'.\nФормат: {fmt}\nТональность: {tov}\n\nСтрогие правила:\n1. ИСПОЛЬЗУЙ ТОЛЬКО ЭТИ ФАКТЫ (0% отсебятины):\n{facts_context}\n\n2. Органично вставь 1-2 из этих внутренних ссылок:\n{links_context}"
                                 generated_text = generate_llm(gen_prompt, temperature=0.2)
                                 st.markdown(safe_md(generated_text))
                                 st.download_button("📥 Скачать файл (.md)", data=generated_text, file_name=f"{target_kw.replace(' ','_')}.md", mime="text/markdown")
-
                     with c_doc:
                         with st.container(border=True):
                             st.markdown("#### 🩺 Умный Доктор (QA Verification)")
                             with st.spinner("Анализ на галлюцинации..."):
-                                doc_prompt = f"""Проанализируй текст на соответствие фактам. Ищи галлюцинации.
-ФАКТЫ В БАЗЕ:
-{facts_context}
-
-СГЕНЕРИРОВАННЫЙ ТЕКСТ:
-{generated_text}
-
-Формат ответа:
-Вердикт: PASS или FAIL.
-Если FAIL, выпиши конкретные цитаты с отсебятиной и объясни, почему это галлюцинация.
-Если PASS, подтверди, что текст на 100% безопасен."""
+                                doc_prompt = f"Проанализируй текст на соответствие фактам. Ищи галлюцинации.\nФАКТЫ В БАЗЕ:\n{facts_context}\n\nСГЕНЕРИРОВАННЫЙ ТЕКСТ:\n{generated_text}\n\nФормат ответа:\nВердикт: PASS или FAIL.\nЕсли FAIL, выпиши конкретные цитаты с отсебятиной и объясни, почему это галлюцинация.\nЕсли PASS, подтверди, что текст на 100% безопасен."
                                 doc_verdict = generate_llm(doc_prompt, temperature=0.0)
-                                
                                 if "PASS" in doc_verdict.upper() and "FAIL" not in doc_verdict.upper():
                                     st.markdown(f"<div style='background-color:rgba(46,133,64,0.1); padding:10px; border-radius:6px; border-left: 4px solid #2E7D32;'>{safe_md(doc_verdict)}</div>", unsafe_allow_html=True)
                                     st.markdown(f"<div class='qa-box'><b>🛡️ Quality Assurance:</b><br>Текст проверен нейросетью и верифицирован специалистом <b>@{st.session_state['username']}</b>. <br>✅ Готово к публикации.</div>", unsafe_allow_html=True)
                                 else:
                                     st.markdown(f"<div style='background-color:rgba(239,68,68,0.1); padding:10px; border-radius:6px; border-left: 4px solid #DC2626;'>{safe_md(doc_verdict)}</div>", unsafe_allow_html=True)
                                     st.markdown(f"<div class='qa-box' style='border-left-color: #DC2626; background-color: rgba(239, 68, 68, 0.05);'><b>❌ QA Rejected:</b><br>Текст не прошел внутреннюю проверку на достоверность. Требуется регенерация.</div>", unsafe_allow_html=True)
-                                
                                 save_generation_to_history(selected_product, st.session_state["username"], target_kw, content_type, generated_text, doc_verdict)
-
 
 # 2. GAP AUDIT
 elif st.session_state.active_tab.startswith("📊 Gap"):
     st.info("💡 **Как это работает:** Введите поисковый запрос (интент), под который планируете писать. Система просканирует базу знаний и покажет Score (покрытие фактами). Если покрытие слабое — создаст ТЗ для автора.")
-    
     tab_single, tab_batch = st.tabs(["🔍 Одиночный аудит", "📁 Массовый аудит (Batch)"])
-    
     with tab_single:
         with st.container(border=True):
             default_audit = f"How {selected_product} pricing and limits work?" if selected_product == "toriut" else f"Can {selected_product} integrate with HubSpot?"
@@ -576,11 +495,9 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
             with st.spinner("Векторный анализ базы..."):
                 audit_facts = retrieve_facts(audit_kw, selected_product, top_k=4, threshold=0.0)
                 pages_to_update = retrieve_linking_pages(audit_kw, selected_product, top_k=3)
-                
                 best_sc = audit_facts[0].get("similarity", 0) if audit_facts else 0
                 p_score = int(best_sc * 100)
                 if p_score > 100: p_score = 100
-                
                 if p_score >= 65: color, text_s = "#10B981", "Отличное покрытие"
                 elif p_score >= 45: color, text_s = "#F59E0B", "Среднее покрытие"
                 else: color, text_s = "#EF4444", "Слепая зона"
@@ -600,87 +517,44 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
                 
                 facts_text = "".join([f"- {af.get('claim','')}\n" for af in audit_facts]) if audit_facts else "Фактов в базе НЕТ."
                 pages_text = "".join([f"- {pu.get('url', '')}\n" for pu in pages_to_update]) if pages_to_update else "Релевантных страниц НЕТ."
-                
-                matrix_prompt = f"""Проанализируй интент '{audit_kw}' для продукта '{selected_product}'.
-Найденные фрагменты в базе:
-{facts_text}
-Ближайшие существующие URL: {pages_text}
-
-Твоя задача — дать ответ из ДВУХ частей, разделенных ровно строкой "===MATRIX===".
-
-ЧАСТЬ 1 (Аналитика текста):
-Напиши развернутый анализ в формате Markdown:
-1. 🎯 Вердикт по интенту: Насколько текущая база закрывает боль пользователя?
-2. 🚨 Слепые зоны: Чего критически не хватает?
-3. 🛠 Actionable Advice: Что конкретно нужно сделать с контентом.
-
-===MATRIX===
-
-ЧАСТЬ 2 (JSON таблица):
-Верни СТРОГО валидный JSON-массив объектов. Никакого текста, только массив. Ключи:
-"sub_topic" (строка, название подтемы),
-"status" (строка, "Есть в базе" или "Слепая зона"),
-"recommendation" (строка, что конкретно написать),
-"target_url" (строка, URL из ближайших или 'Новая страница'),
-"business_value" (строка, выгода/ROI).
-"""
+                matrix_prompt = f"Проанализируй интент '{audit_kw}' для продукта '{selected_product}'.\nНайденные фрагменты в базе:\n{facts_text}\nБлижайшие существующие URL: {pages_text}\n\nТвоя задача — дать ответ из ДВУХ частей, разделенных ровно строкой \"===MATRIX===\".\n\nЧАСТЬ 1 (Аналитика текста):\nНапиши развернутый анализ в формате Markdown:\n1. 🎯 Вердикт по интенту: Насколько текущая база закрывает боль пользователя?\n2. 🚨 Слепые зоны: Чего критически не хватает?\n3. 🛠 Actionable Advice: Что конкретно нужно сделать с контентом.\n\n===MATRIX===\n\nЧАСТЬ 2 (JSON таблица):\nВерни СТРОГО валидный JSON-массив объектов. Никакого текста, только массив. Ключи:\n\"sub_topic\" (строка, название подтемы),\n\"status\" (строка, \"Есть в базе\" или \"Слепая зона\"),\n\"recommendation\" (строка, что конкретно написать),\n\"target_url\" (строка, URL из ближайших или 'Новая страница'),\n\"business_value\" (строка, выгода/ROI)."
                 raw_ans = generate_llm(matrix_prompt, temperature=0.1)
                 
-                if "===MATRIX===" in raw_ans:
-                    strat_text, raw_json = raw_ans.split("===MATRIX===", 1)
+                if "===MATRIX===" in raw_ans: strat_text, raw_json = raw_ans.split("===MATRIX===", 1)
                 elif "```json" in raw_ans:
                     parts = raw_ans.split("```json", 1)
                     strat_text = parts[0].strip()
                     raw_json = "```json\n" + parts[1]
-                else:
-                    strat_text = raw_ans
-                    raw_json = "[]"
+                else: strat_text, raw_json = raw_ans, "[]"
                     
-                clean_json = clean_json_string(raw_json)
-                
                 st.session_state.gap_dash_html = dash_html
                 st.session_state.gap_strategy_text = strat_text.strip()
-                st.session_state.gap_matrix = clean_json
+                st.session_state.gap_matrix = clean_json_string(raw_json)
                 st.session_state.gap_kw = audit_kw
                 st.session_state.gap_active = True
 
         if st.session_state.get("gap_active"):
             st.markdown(st.session_state.gap_dash_html, unsafe_allow_html=True)
-            
             st.markdown("#### 🕵️ Пруфы аудита (Стратегия)")
             st.info(safe_md(st.session_state.gap_strategy_text))
-
             st.divider()
             
             if st.button("📝 Создать Jira-ready ТЗ копирайтеру", type="primary"):
                 with st.spinner("Генерация ТЗ..."):
-                    brief_prompt = f"""Сгенерируй детальное ТЗ для копирайтера под запрос '{st.session_state.gap_kw}' на основе матрицы пробелов:
-{st.session_state.gap_matrix}
-
-Сформируй ответ так, чтобы его можно было сразу скопировать в таск-трекер (Jira/Trello).
-Используй структуру:
-**Task Title:** Написать/Обновить статью под запрос [{st.session_state.gap_kw}]
-**Business Value (Зачем мы это делаем):** [кратко из матрицы]
-**Description / Structure:** [детальный план H2/H3]
-**Required Entities (LSI):** [какие термины обязательно использовать]
-**Acceptance Criteria (DoD):** [чек-лист для проверки качества]
-"""
+                    brief_prompt = f"Сгенерируй детальное ТЗ для копирайтера под запрос '{st.session_state.gap_kw}' на основе матрицы пробелов:\n{st.session_state.gap_matrix}\n\nСформируй ответ так, чтобы его можно было сразу скопировать в таск-трекер (Jira/Trello). Используй структуру:\n**Task Title:** Написать/Обновить статью под запрос [{st.session_state.gap_kw}]\n**Business Value (Зачем мы это делаем):** [кратко из матрицы]\n**Description / Structure:** [детальный план H2/H3]\n**Required Entities (LSI):** [какие термины обязательно использовать]\n**Acceptance Criteria (DoD):** [чек-лист для проверки качества]"
                     brief = generate_llm(brief_prompt, temperature=0.3)
                     st.markdown("#### 📋 Готовый тикет (ТЗ)")
                     st.markdown(safe_md(brief))
                     st.download_button("📥 Скачать ТЗ (.md)", data=brief, file_name=f"Jira_Task_{st.session_state.gap_kw.replace(' ','_')}.md", mime="text/markdown")
 
             st.divider()
-
             try:
                 matrix_data = json.loads(st.session_state.gap_matrix)
                 if matrix_data:
                     st.markdown("#### 📊 Матрица контента и ROI")
                     st.caption("Детализация контент-плана по сущностям (для Тимлида/Менеджера).")
-                    df_matrix = pd.DataFrame(matrix_data)
-                    st.dataframe(df_matrix, hide_index=True, use_container_width=True)
-            except Exception as e:
-                st.warning("Таблица матрицы не сгенерировалась (LLM вернула нестандартный формат).")
+                    st.dataframe(pd.DataFrame(matrix_data), hide_index=True, use_container_width=True)
+            except: st.warning("Таблица матрицы не сгенерировалась.")
 
     with tab_batch:
         with st.container(border=True):
@@ -693,231 +567,221 @@ elif st.session_state.active_tab.startswith("📊 Gap"):
                 for i, kw in enumerate(kws):
                     facts = retrieve_facts(kw, selected_product, top_k=1)
                     if facts:
-                        sc = facts[0].get("similarity", 0)
-                        p_sc = int(sc * 100)
+                        p_sc = int(facts[0].get("similarity", 0) * 100)
                         status = "🟢 Закрыто" if p_sc >= 65 else ("🟡 Средне" if p_sc >= 45 else "🔴 Слепая зона")
-                    else:
-                        p_sc, status = 0, "🔴 Слепая зона"
+                    else: p_sc, status = 0, "🔴 Слепая зона"
                     results.append({"Ключ (Интент)": kw, "Score": f"{p_sc}%", "Статус": status})
                     bar.progress((i+1)/len(kws))
                 st.dataframe(pd.DataFrame(results).sort_values(by="Score"), hide_index=True, use_container_width=True)
 
 # 3. LINK CHECKER
 elif st.session_state.active_tab.startswith("🌐 Link Checker"):
-    with st.container(border=True):
-        st.markdown(f"#### 🌐 Мониторинг бэклинков ({selected_product.upper()})")
+    st.markdown(f"### 🌐 Мониторинг бэклинков ({selected_product.upper()})")
+    
+    with st.expander("➕ Добавить / Импорт бэклинков"):
+        tab_single, tab_batch = st.tabs(["Добавить одну ссылку", "Загрузить из файла (CSV / TXT)"])
+        single_to_add = None
+        batch_items = []
+        with tab_single:
+            col_s1, col_s2, col_s3 = st.columns([1.5, 1.5, 1])
+            with col_s1: single_url = st.text_input("URL статьи (донор)", key="s_u_i")
+            with col_s2: single_target = st.text_input("Куда ссылаемся (Target URL)", key="s_t_i")
+            with col_s3: single_kw = st.text_input("Ключ / Бренд", key="s_k_i")
+            if st.button("Проверить и сохранить", type="primary"):
+                if single_url.strip() and single_target.strip() and single_kw.strip(): single_to_add = (single_url.strip(), single_target.strip(), single_kw.strip())
+                else: st.warning("Заполните все поля.")
+        with tab_batch:
+            uploaded_links_file = st.file_uploader("Формат: URL статьи, Target URL, Ключ", type=["csv", "txt"])
+            if st.button("Запустить массовую проверку", type="primary"):
+                if uploaded_links_file:
+                    content = uploaded_links_file.read().decode("utf-8")
+                    for line in content.splitlines():
+                        sep = "|" if "|" in line else ","
+                        parts = line.split(sep)
+                        if len(parts) >= 3:
+                            u, targ, k = [p.strip().strip('"').strip("'") for p in parts[:3]]
+                            if u.startswith("http"): batch_items.append((u, targ, k))
+                else: st.warning("Загрузите файл.")
+
+        queue_to_process = []
+        if single_to_add: queue_to_process.append(single_to_add)
+        queue_to_process.extend(batch_items)
+
+        if queue_to_process:
+            bar = st.progress(0)
+            success_cnt = 0
+            for idx, (url_to_check, target_url, target_brand) in enumerate(queue_to_process):
+                status_code, attr_result = check_link_status(url_to_check, target_url, target_brand)
+                payload = {"product": selected_product, "page_url": url_to_check, "target_url": target_url, "target_keyword": target_brand, "http_status": status_code, "link_attribute": attr_result}
+                try: 
+                    requests.post(f"{SUPABASE_URL}/rest/v1/link_checker", headers=get_supabase_headers(), json=payload, timeout=5)
+                    success_cnt += 1
+                except: pass
+                bar.progress((idx + 1) / len(queue_to_process))
+            st.success(f"Готово! Сохранено: {success_cnt}")
+            st.rerun()
+
+    st.divider()
+
+    r_links = requests.get(f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}&order=checked_at.desc", headers=get_supabase_headers(), timeout=10)
+    if r_links.status_code == 200 and r_links.json():
+        links_data = r_links.json()
+        df = pd.DataFrame(links_data)
         
-        with st.expander("➕ Добавить / Импорт бэклинков"):
-            tab_single, tab_batch = st.tabs(["Добавить одну ссылку", "Загрузить из файла (CSV / TXT)"])
-            single_to_add = None
-            batch_items = []
-            with tab_single:
-                col_s1, col_s2, col_s3 = st.columns([1.5, 1.5, 1])
-                with col_s1: single_url = st.text_input("URL статьи (донор)", key="s_u_i")
-                with col_s2: single_target = st.text_input("Куда ссылаемся (Target URL)", key="s_t_i")
-                with col_s3: single_kw = st.text_input("Ключ / Бренд", key="s_k_i")
-                if st.button("Проверить и сохранить", type="primary"):
-                    if single_url.strip() and single_target.strip() and single_kw.strip(): single_to_add = (single_url.strip(), single_target.strip(), single_kw.strip())
-                    else: st.warning("Заполните все поля.")
-            with tab_batch:
-                uploaded_links_file = st.file_uploader("Формат: URL статьи, Target URL, Ключ", type=["csv", "txt"])
-                if st.button("Запустить массовую проверку", type="primary"):
-                    if uploaded_links_file:
-                        content = uploaded_links_file.read().decode("utf-8")
-                        for line in content.splitlines():
-                            sep = "|" if "|" in line else ","
-                            parts = line.split(sep)
-                            if len(parts) >= 3:
-                                u, targ, k = [p.strip().strip('"').strip("'") for p in parts[:3]]
-                                if u.startswith("http"): batch_items.append((u, targ, k))
-                    else: st.warning("Загрузите файл.")
-
-            queue_to_process = []
-            if single_to_add: queue_to_process.append(single_to_add)
-            queue_to_process.extend(batch_items)
-
-            if queue_to_process:
-                bar = st.progress(0)
-                success_cnt = 0
-                for idx, (url_to_check, target_url, target_brand) in enumerate(queue_to_process):
-                    status_code, attr_result = check_link_status(url_to_check, target_url, target_brand)
-                    payload = {"product": selected_product, "page_url": url_to_check, "target_url": target_url, "target_keyword": target_brand, "http_status": status_code, "link_attribute": attr_result}
-                    try: 
-                        requests.post(f"{SUPABASE_URL}/rest/v1/link_checker", headers=get_supabase_headers(), json=payload, timeout=5)
-                        success_cnt += 1
-                    except: pass
-                    bar.progress((idx + 1) / len(queue_to_process))
-                st.success(f"Готово! Сохранено: {success_cnt}")
-                st.rerun()
-
-        st.divider()
-
-        r_links = requests.get(f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}&order=checked_at.desc", headers=get_supabase_headers(), timeout=10)
-        if r_links.status_code == 200 and r_links.json():
-            links_data = r_links.json()
-            df = pd.DataFrame(links_data)
-            
-            df['is_live'] = (df['http_status'] == 200) & (df['link_attribute'].isin(['dofollow', 'nofollow']))
-            df['Status'] = df['is_live'].apply(lambda x: "🟢 Live" if x else "🔴 Dead")
-            df['Anchor & Target'] = df.apply(lambda r: f"{r.get('target_keyword') or '—'} \n {r.get('target_url') or '#'}", axis=1)
-            df['Checked'] = df['checked_at'].apply(get_relative_time)
-            df['Select'] = False
-            
-            total_links = len(df)
-            live_links = df['is_live'].sum()
-            dofollow_links = len(df[df['link_attribute'] == 'dofollow'])
-            
-            p_live = int((live_links / total_links) * 100) if total_links else 0
-            p_dof = int((dofollow_links / total_links) * 100) if total_links else 0
-            
-            dash_html = f"""
-            <div style="display:flex; justify-content: space-around; margin-bottom: 30px; flex-wrap: wrap;">
-                <div style="position:relative; width:130px; height:130px;">
-                    <div style="width:100%; height:100%; border-radius:50%; background: conic-gradient(#3B82F6 100%, rgba(128,128,128,0.2) 0); -webkit-mask-image: radial-gradient(transparent 55%, black 56%); mask-image: radial-gradient(transparent 55%, black 56%);"></div>
-                    <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--text-color);">
-                        <span style="font-size:28px; font-weight:bold;">{total_links}</span>
-                        <span style="font-size:12px; opacity:0.7;">Total Links</span>
-                    </div>
-                </div>
-                <div style="position:relative; width:130px; height:130px;">
-                    <div style="width:100%; height:100%; border-radius:50%; background: conic-gradient(#10B981 {p_live}%, rgba(128,128,128,0.2) 0); -webkit-mask-image: radial-gradient(transparent 55%, black 56%); mask-image: radial-gradient(transparent 55%, black 56%);"></div>
-                    <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--text-color);">
-                        <span style="font-size:28px; font-weight:bold;">{live_links}</span>
-                        <span style="font-size:12px; opacity:0.7;">Live ({p_live}%)</span>
-                    </div>
-                </div>
-                <div style="position:relative; width:130px; height:130px;">
-                    <div style="width:100%; height:100%; border-radius:50%; background: conic-gradient(#10B981 {p_dof}%, rgba(128,128,128,0.2) 0); -webkit-mask-image: radial-gradient(transparent 55%, black 56%); mask-image: radial-gradient(transparent 55%, black 56%);"></div>
-                    <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--text-color);">
-                        <span style="font-size:28px; font-weight:bold;">{dofollow_links}</span>
-                        <span style="font-size:12px; opacity:0.7;">Dofollow</span>
-                    </div>
-                </div>
-                <div style="position:relative; width:130px; height:130px;">
-                    <div style="width:100%; height:100%; border-radius:50%; background: conic-gradient(#EF4444 {100-p_live}%, rgba(128,128,128,0.2) 0); -webkit-mask-image: radial-gradient(transparent 55%, black 56%); mask-image: radial-gradient(transparent 55%, black 56%);"></div>
-                    <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--text-color);">
-                        <span style="font-size:28px; font-weight:bold;">{total_links - live_links}</span>
-                        <span style="font-size:12px; opacity:0.7;">Dead / Missing</span>
-                    </div>
+        df['is_live'] = (df['http_status'] == 200) & (df['link_attribute'].isin(['dofollow', 'nofollow']))
+        df['Status'] = df['is_live'].apply(lambda x: "🟢 Live" if x else "🔴 Dead")
+        df['Anchor & Target'] = df.apply(lambda r: f"{r.get('target_keyword') or '—'} \n {r.get('target_url') or '#'}", axis=1)
+        df['Checked'] = df['checked_at'].apply(get_relative_time)
+        df['Select'] = False
+        
+        total_links = len(df)
+        live_links = df['is_live'].sum()
+        dofollow_links = len(df[df['link_attribute'] == 'dofollow'])
+        
+        p_live = int((live_links / total_links) * 100) if total_links else 0
+        p_dof = int((dofollow_links / total_links) * 100) if total_links else 0
+        
+        dash_html = f"""
+        <div style="display:flex; justify-content: space-around; margin-bottom: 30px; flex-wrap: wrap;">
+            <div style="position:relative; width:130px; height:130px;">
+                <div style="width:100%; height:100%; border-radius:50%; background: conic-gradient(#3B82F6 100%, rgba(128,128,128,0.2) 0); -webkit-mask-image: radial-gradient(transparent 55%, black 56%); mask-image: radial-gradient(transparent 55%, black 56%);"></div>
+                <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--text-color);">
+                    <span style="font-size:28px; font-weight:bold;">{total_links}</span>
+                    <span style="font-size:12px; opacity:0.7;">Total Links</span>
                 </div>
             </div>
-            """
-            st.markdown(dash_html, unsafe_allow_html=True)
+            <div style="position:relative; width:130px; height:130px;">
+                <div style="width:100%; height:100%; border-radius:50%; background: conic-gradient(#10B981 {p_live}%, rgba(128,128,128,0.2) 0); -webkit-mask-image: radial-gradient(transparent 55%, black 56%); mask-image: radial-gradient(transparent 55%, black 56%);"></div>
+                <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--text-color);">
+                    <span style="font-size:28px; font-weight:bold;">{live_links}</span>
+                    <span style="font-size:12px; opacity:0.7;">Live ({p_live}%)</span>
+                </div>
+            </div>
+            <div style="position:relative; width:130px; height:130px;">
+                <div style="width:100%; height:100%; border-radius:50%; background: conic-gradient(#10B981 {p_dof}%, rgba(128,128,128,0.2) 0); -webkit-mask-image: radial-gradient(transparent 55%, black 56%); mask-image: radial-gradient(transparent 55%, black 56%);"></div>
+                <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--text-color);">
+                    <span style="font-size:28px; font-weight:bold;">{dofollow_links}</span>
+                    <span style="font-size:12px; opacity:0.7;">Dofollow</span>
+                </div>
+            </div>
+            <div style="position:relative; width:130px; height:130px;">
+                <div style="width:100%; height:100%; border-radius:50%; background: conic-gradient(#EF4444 {100-p_live}%, rgba(128,128,128,0.2) 0); -webkit-mask-image: radial-gradient(transparent 55%, black 56%); mask-image: radial-gradient(transparent 55%, black 56%);"></div>
+                <div style="position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; color: var(--text-color);">
+                    <span style="font-size:28px; font-weight:bold;">{total_links - live_links}</span>
+                    <span style="font-size:12px; opacity:0.7;">Dead / Missing</span>
+                </div>
+            </div>
+        </div>
+        """
+        st.markdown(dash_html, unsafe_allow_html=True)
+        
+        # Единая панель фильтров и управления
+        st.markdown("<p style='font-size:0.85em; font-weight:600; opacity:0.7; margin-bottom:5px;'>ФИЛЬТРЫ И УПРАВЛЕНИЕ ТАБЛИЦЕЙ</p>", unsafe_allow_html=True)
+        f1, f2, f3, f4 = st.columns([2.5, 1.5, 2, 1])
+        search_q = f1.text_input("Поиск", placeholder="🔍 Поиск по URL донора...", label_visibility="collapsed")
+        status_f = f2.multiselect("Статус", ["🟢 Live", "🔴 Dead"], default=["🟢 Live", "🔴 Dead"], label_visibility="collapsed")
+        attr_f = f3.multiselect("Атрибут", ["dofollow", "nofollow", "Link Missing", "Wrong Anchor", "Not Found", "Error"], default=["dofollow", "nofollow", "Link Missing", "Wrong Anchor", "Not Found", "Error"], label_visibility="collapsed")
+        items_per_page = f4.selectbox("Показывать по:", [10, 20, 50, 100, 200], index=1, label_visibility="collapsed")
+        
+        if search_q: df = df[df['page_url'].str.contains(search_q, case=False)]
+        df = df[df['Status'].isin(status_f)]
+        df = df[df['link_attribute'].isin(attr_f)]
+        
+        total_filtered = len(df)
+        total_pages = max(1, (total_filtered + items_per_page - 1) // items_per_page)
+        
+        if "link_page" not in st.session_state: st.session_state.link_page = 1
+        if st.session_state.link_page > total_pages: st.session_state.link_page = total_pages
+        if st.session_state.link_page < 1: st.session_state.link_page = 1
+        
+        st.write("")
+        c_pag1, c_pag2, c_pag3 = st.columns([1, 8, 1])
+        if c_pag1.button("⬅️ Назад", use_container_width=True, disabled=(st.session_state.link_page == 1)):
+            st.session_state.link_page -= 1
+            st.rerun()
+        c_pag2.markdown(f"<div style='text-align: center; margin-top: 5px; font-weight: 500; font-size: 0.95em;'>Страница {st.session_state.link_page} из {total_pages} <span style='opacity: 0.5;'>| Всего ссылок: {total_filtered}</span></div>", unsafe_allow_html=True)
+        if c_pag3.button("Вперед ➡️", use_container_width=True, disabled=(st.session_state.link_page == total_pages)):
+            st.session_state.link_page += 1
+            st.rerun()
             
-            f1, f2, f3 = st.columns([2, 1, 1])
-            search_q = f1.text_input("🔍 Поиск", placeholder="Поиск по URL страницы донора...")
-            status_f = f2.multiselect("Статус", ["🟢 Live", "🔴 Dead"], default=["🟢 Live", "🔴 Dead"])
-            attr_f = f3.multiselect("Атрибут", ["dofollow", "nofollow", "Link Missing", "Wrong Anchor", "Not Found", "Error"], default=["dofollow", "nofollow", "Link Missing", "Wrong Anchor", "Not Found", "Error"])
-            
-            # Применение фильтров
-            if search_q: df = df[df['page_url'].str.contains(search_q, case=False)]
-            df = df[df['Status'].isin(status_f)]
-            df = df[df['link_attribute'].isin(attr_f)]
-            
-            st.write("")
-            
-            # --- ЛОГИКА ПАГИНАЦИИ ---
-            c_pag1, c_pag2, c_pag3 = st.columns([1, 2, 1])
-            with c_pag1:
-                items_per_page = st.selectbox("Записей на страницу:", [10, 20, 50, 100, 200], index=1)
-            
-            total_filtered = len(df)
-            total_pages = max(1, (total_filtered + items_per_page - 1) // items_per_page)
-            
-            # Безопасный сброс страницы при смене фильтров
-            if "link_page" not in st.session_state: st.session_state.link_page = 1
-            if st.session_state.link_page > total_pages: st.session_state.link_page = total_pages
-            
-            with c_pag2:
-                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True) # Вертикальное выравнивание
-                col_b1, col_t, col_b2 = st.columns([1, 2, 1])
-                if col_b1.button("⬅️ Назад", use_container_width=True, disabled=(st.session_state.link_page == 1)):
-                    st.session_state.link_page -= 1
+        start_idx = (st.session_state.link_page - 1) * items_per_page
+        end_idx = start_idx + items_per_page
+        page_df = df.iloc[start_idx:end_idx]
+        
+        display_df = page_df[['Select', 'id', 'page_url', 'Anchor & Target', 'Status', 'link_attribute', 'http_status', 'Checked']]
+        
+        # Жесткий расчет высоты, чтобы убить внутренний скроллбар (36px на строку + 40px шапка)
+        table_height = (len(page_df) + 1) * 36 + 5
+        
+        editor_key = f"link_editor_{selected_product}_{st.session_state.link_page}"
+        edited_df = st.data_editor(
+            display_df,
+            column_config={
+                "Select": st.column_config.CheckboxColumn("☑️", default=False),
+                "id": None,
+                "page_url": st.column_config.LinkColumn("Referring Page", display_text=r"https?://(?:www\.)?([^/]+).*"), 
+                "Anchor & Target": st.column_config.TextColumn("Backlink Anchor & URL"),
+                "Status": st.column_config.TextColumn("Active"),
+                "link_attribute": st.column_config.TextColumn("Rel Attribute"),
+                "http_status": st.column_config.NumberColumn("HTTP"),
+                "Checked": st.column_config.TextColumn("Indexed / Checked")
+            },
+            disabled=["page_url", "Anchor & Target", "Status", "link_attribute", "http_status", "Checked"],
+            hide_index=True, 
+            use_container_width=True,
+            height=table_height,
+            key=editor_key
+        )
+        
+        selected_rows = edited_df[edited_df['Select']]
+        selected_ids = selected_rows['id'].tolist()
+        
+        if len(selected_ids) == 1:
+            row_to_edit = selected_rows.iloc[0]
+            orig_data = df[df['id'] == row_to_edit['id']].iloc[0]
+            with st.expander("✏️ Редактировать выбранную ссылку", expanded=True):
+                ce1, ce2, ce3 = st.columns(3)
+                e_p_url = ce1.text_input("URL донора", value=orig_data['page_url'])
+                e_t_url = ce2.text_input("Цель (наш сайт)", value=orig_data['target_url'] if orig_data['target_url'] else "")
+                e_kw = ce3.text_input("Ключ / Анкор", value=orig_data['target_keyword'] if orig_data['target_keyword'] else "")
+                
+                if st.button("💾 Сохранить и Перепроверить", type="primary"):
+                    s_code, a_res = check_link_status(e_p_url, e_t_url, e_kw)
+                    requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_to_edit['id']}", 
+                        headers=get_supabase_headers(), 
+                        json={"page_url": e_p_url, "target_url": e_t_url, "target_keyword": e_kw, "http_status": s_code, "link_attribute": a_res}
+                    )
                     st.rerun()
-                col_t.markdown(f"<div style='text-align: center; margin-top: 5px;'><b>Страница {st.session_state.link_page} из {total_pages}</b><br><span style='opacity: 0.6; font-size: 0.8em;'>Всего ссылок: {total_filtered}</span></div>", unsafe_allow_html=True)
-                if col_b2.button("Вперед ➡️", use_container_width=True, disabled=(st.session_state.link_page == total_pages)):
-                    st.session_state.link_page += 1
-                    st.rerun()
-            
-            # Обрезка DataFrame для текущей страницы
-            start_idx = (st.session_state.link_page - 1) * items_per_page
-            end_idx = start_idx + items_per_page
-            page_df = df.iloc[start_idx:end_idx]
-            
-            # --- ОТРИСОВКА ТАБЛИЦЫ ---
-            display_df = page_df[['Select', 'id', 'page_url', 'Anchor & Target', 'Status', 'link_attribute', 'http_status', 'Checked']]
-            
-            editor_key = f"link_editor_{selected_product}_{st.session_state.link_page}"
-            edited_df = st.data_editor(
-                display_df,
-                column_config={
-                    "Select": st.column_config.CheckboxColumn("☑️", default=False),
-                    "id": None,
-                    "page_url": st.column_config.LinkColumn("Referring Page", display_text=r"https?://(?:www\.)?([^/]+).*"), 
-                    "Anchor & Target": st.column_config.TextColumn("Backlink Anchor & URL"),
-                    "Status": st.column_config.TextColumn("Active"),
-                    "link_attribute": st.column_config.TextColumn("Rel Attribute"),
-                    "http_status": st.column_config.NumberColumn("HTTP"),
-                    "Checked": st.column_config.TextColumn("Indexed / Checked")
-                },
-                disabled=["page_url", "Anchor & Target", "Status", "link_attribute", "http_status", "Checked"],
-                hide_index=True, use_container_width=True,
-                key=editor_key
-            )
-            
-            # Действия над выделенными ссылками (работают в пределах текущей страницы)
-            selected_rows = edited_df[edited_df['Select']]
-            selected_ids = selected_rows['id'].tolist()
-            
-            if len(selected_ids) == 1:
-                row_to_edit = selected_rows.iloc[0]
-                orig_data = df[df['id'] == row_to_edit['id']].iloc[0]
-                with st.expander("✏️ Редактировать выбранную ссылку", expanded=True):
-                    ce1, ce2, ce3 = st.columns(3)
-                    e_p_url = ce1.text_input("URL донора", value=orig_data['page_url'])
-                    e_t_url = ce2.text_input("Цель (наш сайт)", value=orig_data['target_url'] if orig_data['target_url'] else "")
-                    e_kw = ce3.text_input("Ключ / Анкор", value=orig_data['target_keyword'] if orig_data['target_keyword'] else "")
-                    
-                    if st.button("💾 Сохранить и Перепроверить", type="primary"):
-                        s_code, a_res = check_link_status(e_p_url, e_t_url, e_kw)
-                        requests.patch(
-                            f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{row_to_edit['id']}", 
-                            headers=get_supabase_headers(), 
-                            json={"page_url": e_p_url, "target_url": e_t_url, "target_keyword": e_kw, "http_status": s_code, "link_attribute": a_res}
-                        )
-                        st.rerun()
 
-            if len(selected_ids) > 0:
-                ca1, ca2 = st.columns([1, 5])
-                if ca1.button("🗑️ Удалить выбранные", type="primary"):
-                    for rid in selected_ids: 
-                        requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{rid}", headers=get_supabase_headers())
-                    if editor_key in st.session_state:
-                        del st.session_state[editor_key]
+        if len(selected_ids) > 0:
+            ca1, ca2 = st.columns([1, 5])
+            if ca1.button("🗑️ Удалить выбранные", type="primary"):
+                for rid in selected_ids: requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{rid}", headers=get_supabase_headers())
+                if editor_key in st.session_state: del st.session_state[editor_key]
+                st.rerun()
+            if ca2.button("🔄 Перепроверить выбранные", type="secondary"):
+                with st.spinner("Идет парсинг ссылок..."):
+                    for rid in selected_ids:
+                        orig_data = df[df['id'] == rid].iloc[0]
+                        s_code, a_res = check_link_status(orig_data['page_url'], orig_data['target_url'], orig_data['target_keyword'])
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{rid}", headers=get_supabase_headers(), json={"http_status": s_code, "link_attribute": a_res})
+                st.rerun()
+        
+        st.divider()
+        c_exp, c_dang = st.columns(2)
+        with c_exp:
+            st.download_button("📥 Экспорт всей базы в CSV", data=pd.DataFrame(links_data).to_csv(index=False).encode('utf-8'), file_name=f"links_dashboard_{selected_product}.csv", mime="text/csv")
+        with c_dang:
+            with st.expander("⚠️ Danger Zone (Массовая очистка)"):
+                st.warning("Это действие навсегда удалит все ссылки текущего проекта.")
+                if st.button(f"💥 Удалить ВСЕ {total_links} ссылок ({selected_product})", type="primary"):
+                    requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}", headers=get_supabase_headers())
+                    if editor_key in st.session_state: del st.session_state[editor_key]
                     st.rerun()
-                if ca2.button("🔄 Перепроверить выбранные", type="secondary"):
-                    with st.spinner("Идет парсинг ссылок..."):
-                        for rid in selected_ids:
-                            orig_data = df[df['id'] == rid].iloc[0]
-                            s_code, a_res = check_link_status(orig_data['page_url'], orig_data['target_url'], orig_data['target_keyword'])
-                            requests.patch(f"{SUPABASE_URL}/rest/v1/link_checker?id=eq.{rid}", headers=get_supabase_headers(), json={"http_status": s_code, "link_attribute": a_res})
-                    st.rerun()
-            
-            st.divider()
-            c_exp, c_dang = st.columns(2)
-            with c_exp:
-                st.download_button("📥 Экспорт всей базы в CSV", data=pd.DataFrame(links_data).to_csv(index=False).encode('utf-8'), file_name=f"links_dashboard_{selected_product}.csv", mime="text/csv")
-            with c_dang:
-                with st.expander("⚠️ Danger Zone (Массовая очистка)"):
-                    st.warning("Это действие навсегда удалит все ссылки текущего проекта.")
-                    if st.button(f"💥 Удалить ВСЕ {total_links} ссылок ({selected_product})", type="primary"):
-                        requests.delete(f"{SUPABASE_URL}/rest/v1/link_checker?product=eq.{selected_product}", headers=get_supabase_headers())
-                        if editor_key in st.session_state:
-                            del st.session_state[editor_key]
-                        st.rerun()
-            
-        else:
-            st.info(f"База бэклинков для {selected_product.upper()} пока пуста или недоступна.")
+        
+    else:
+        st.info(f"База бэклинков для {selected_product.upper()} пока пуста или недоступна.")
 
 # 4. БАЗА ДОНОРОВ (CRM)
 elif st.session_state.active_tab.startswith("👥 База"):
@@ -983,7 +847,6 @@ elif st.session_state.active_tab.startswith("🎯 Insertion"):
     with st.container(border=True):
         st.markdown(f"#### Планировщик ссылок ({selected_product.upper()})")
         st.caption("Анализирует текст-источник и подбирает идеальное место для органичной вставки вашей ссылки.")
-        
         target_url = st.text_input("Целевая страница (наш сайт)", placeholder="https://pics.io/feature")
         target_kw = st.text_input("Ключевое слово для вставки", placeholder="digital asset management")
         insertion_mode = st.radio("Режим вставки:", ["Новое предложение (Дописать)", "Редактирование текущего (Перефразировать)", "Точное вхождение (Без изменения текста)"], horizontal=True)
@@ -992,22 +855,16 @@ elif st.session_state.active_tab.startswith("🎯 Insertion"):
         if st.button("Сгенерировать вставки", type="primary"):
             if target_url and target_kw and brief_text.strip():
                 with st.spinner("Анализ..."):
-                    if "Новое предложение" in insertion_mode:
-                        p_instr = f"Напиши 1-2 НОВЫХ предложения, которые логично продолжат мысль текста, и органично вставь туда анкор '{target_kw}' со ссылкой на {target_url}."
-                    elif "Редактирование" in insertion_mode:
-                        p_instr = f"Возьми кусок из текста, перефразируй его (если нужно) и органично встрой туда анкор '{target_kw}' со ссылкой на {target_url}."
-                    else:
-                        p_instr = f"Найди точное (или максимально близкое по смыслу) вхождение '{target_kw}' в тексте. Сделай его анкором на {target_url}. Не меняй оригинальный текст вокруг."
-                    
+                    if "Новое предложение" in insertion_mode: p_instr = f"Напиши 1-2 НОВЫХ предложения, которые логично продолжат мысль текста, и органично вставь туда анкор '{target_kw}' со ссылкой на {target_url}."
+                    elif "Редактирование" in insertion_mode: p_instr = f"Возьми кусок из текста, перефразируй его (если нужно) и органично встрой туда анкор '{target_kw}' со ссылкой на {target_url}."
+                    else: p_instr = f"Найди точное (или максимально близкое по смыслу) вхождение '{target_kw}' в тексте. Сделай его анкором на {target_url}. Не меняй оригинальный текст вокруг."
                     full_prompt = f"Ты SEO Линкбилдер. Твоя задача встроить ссылку.\nРЕЖИМ: {p_instr}\n\nОРИГИНАЛЬНЫЙ ТЕКСТ ДОНОРА:\n{brief_text}\n\nВыведи готовый абзац с Markdown ссылкой, чтобы я мог скопировать и отдать контентщику."
                     res_text = generate_llm(full_prompt, temperature=0.1)
-                    
                     st.write("")
                     st.markdown("<p style='font-size:1.1em; font-weight:600;'>Latest insertions</p>", unsafe_allow_html=True)
                     with st.expander(f"Target: {target_url}", expanded=True):
                         st.markdown(f"<p style='font-size: 0.85em; opacity: 0.7; margin-bottom: 15px;'>Mode: {insertion_mode} | Key: {target_kw}</p>", unsafe_allow_html=True)
-                        with st.expander("DONOR CONTEXT & RESULT", expanded=True):
-                            st.write(safe_md(res_text))
+                        with st.expander("DONOR CONTEXT & RESULT", expanded=True): st.write(safe_md(res_text))
             else: st.warning("Заполните поля.")
 
 # 6. ЛИНК-БИЛДЕР
